@@ -113,7 +113,7 @@
             apiKey: "AIzaSyCwzPmWpDmx4SEPeZkvzcYLnOd4k6QLe2U",
             authDomain: "my-voice-app-4eca5.firebaseapp.com",
             projectId: "my-voice-app-4eca5",
-            storageBucket: "my-voice-app-4eca5.appspot.com",
+            storageBucket: "my-voice-app-4eca5.firebasestorage.app",
             messagingSenderId: "972654270500",
             appId: "1:972654270500:web:c29a42a09972f5a4ce20b1",
             measurementId: "G-N31J1LYY6G"
@@ -163,11 +163,11 @@
                 showAlert("Please enter a Room ID.");
                 return;
             }
-            if (newRoomId === currentRoomId) {
+            if (newRoomId === currentRoomId && peerConnection) {
                 showAlert("Aap pehle se is room mein hain.");
                 return;
             }
-
+            
             await resetConnection();
             localStorage.setItem('lastRoomId', newRoomId);
             joinOrCreateRoom(newRoomId);
@@ -184,20 +184,30 @@
             if (roomUnsubscribe) roomUnsubscribe();
             roomUnsubscribe = onSnapshot(roomRef, async (snapshot) => {
                 const roomData = snapshot.data();
-                console.log(`Snapshot for room ${roomId}. Exists:`, snapshot.exists());
+                console.log(`Snapshot for room ${roomId}. Exists: ${snapshot.exists()}`);
 
                 if (peerConnection) {
+                    // Agar connection pehle se ban raha hai, to snapshot ko ignore karein
                     return;
                 }
 
                 if (!snapshot.exists()) {
+                    // Room khaali hai, naya banayein
                     await createRoom(roomRef);
                 } else {
+                    // Room pehle se hai
                     if (roomData.answer) {
-                        console.log("Stale room found. It will be deleted on next join attempt.");
+                        // Room full ya stale hai. Ise delete karein.
+                        console.log("Stale/full room found. Deleting for a fresh start.");
+                        await deleteDoc(roomRef);
+                        // Listener apne aap dobara fire hoga aur naya room banayega.
                     } else if (roomData.offer) {
+                        // Room mein offer hai, join karein.
                         if (roomData.creatorId !== currentUserId) {
                            await answerCall(roomRef, roomData);
+                        } else {
+                            // Main hi is room ka creator hu, partner ka intezar karein.
+                            updateStatus("Waiting for partner...", 'connecting');
                         }
                     }
                 }
@@ -209,8 +219,10 @@
 
         // --- WebRTC Core Functions ---
         async function createRoom(roomRef) {
+            if (peerConnection) return;
             isRoomCreator = true;
-            updateStatus("Searching for partner...", 'connecting');
+            // FIXED: Better status message for single user
+            updateStatus("Waiting for partner...", 'connecting');
 
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
@@ -231,6 +243,7 @@
         }
         
         async function answerCall(roomRef, roomData) {
+            if (peerConnection) return;
             isRoomCreator = false;
             updateStatus("Connecting to partner...", 'connecting');
 
@@ -263,7 +276,10 @@
             pc.onconnectionstatechange = () => {
                 if (pc.connectionState === 'connected') {
                     updateStatus('Connected', 'connected');
-                    if (roomUnsubscribe) roomUnsubscribe();
+                    if (roomUnsubscribe) {
+                        roomUnsubscribe();
+                        roomUnsubscribe = null;
+                    }
                 } else if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
                     resetConnection();
                 }
@@ -289,6 +305,8 @@
         }
         
         async function resetConnection() {
+            updateStatus('Disconnected', 'disconnected');
+
             if (roomUnsubscribe) {
                 roomUnsubscribe();
                 roomUnsubscribe = null;
@@ -305,8 +323,6 @@
             localAudio.srcObject = null;
             remoteAudio.srcObject = null;
             isRoomCreator = false;
-            updateStatus('Disconnected', 'disconnected');
-            // Re-joining will be handled by the click handler or page load.
         }
 
         function updateStatus(message, state) {
@@ -334,4 +350,3 @@
     </script>
 </body>
 </html>
-
