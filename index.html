@@ -89,7 +89,6 @@
         let isRoomCreator = false;
 
         // Your web app's Firebase configuration
-        // REMINDER: Add your domain (e.g., blockchainverifying.github.io) to Firebase -> Authentication -> Settings -> Authorized domains.
         const firebaseConfig = {
             apiKey: "AIzaSyCwzPmWpDmx4SEPeZkvzcYLnOd4k6QLe2U",
             authDomain: "my-voice-app-4eca5.firebaseapp.com",
@@ -111,30 +110,20 @@
         // --- Main Initialization ---
         async function initialize() {
             updateStatus("Initializing...", 'connecting');
-            if (!firebaseConfig.apiKey) {
-                updateStatus("Firebase not configured.", 'disconnected');
-                return;
-            }
             try {
-                console.log("1. Initializing Firebase app...");
                 const app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
                 
-                console.log("2. Setting up auth state listener...");
                 onAuthStateChanged(auth, user => {
-                    console.log("5. onAuthStateChanged triggered. User:", user ? user.uid : 'No user');
                     if (user && !currentUserId) { 
                         currentUserId = user.uid;
                         userIdEl.textContent = currentUserId.substring(0, 10) + '...';
-                        console.log("6. User authenticated. Calling joinOrCreateRoom().");
                         joinOrCreateRoom();
                     }
                 });
                 
-                console.log("3. Attempting to sign in anonymously...");
                 await signInAnonymously(auth);
-                console.log("4. signInAnonymously call completed.");
 
             } catch (e) {
                 console.error("Initialization Error:", e);
@@ -144,33 +133,39 @@
         }
         
         async function joinOrCreateRoom() {
-            console.log("7. Inside joinOrCreateRoom(). Attaching snapshot listener...");
+            console.log("Attaching snapshot listener...");
             const roomRef = doc(db, `webrtc-channels`, PUBLIC_CHANNEL_ID);
             
             if (roomUnsubscribe) roomUnsubscribe();
             roomUnsubscribe = onSnapshot(roomRef, async (snapshot) => {
-                console.log("8. Snapshot listener fired. Document exists:", snapshot.exists());
                 const roomData = snapshot.data();
+                console.log("Snapshot fired. Exists:", snapshot.exists(), "Data:", roomData);
 
-                if (!peerConnection) {
-                    if (!snapshot.exists() || !roomData?.offer) {
-                        console.log("9a. Room is empty. Calling createRoom().");
-                        await createRoom(roomRef);
-                    } else if (roomData.offer && !roomData.answer) {
+                if (peerConnection) {
+                    console.log("Already in a connection process. Ignoring snapshot.");
+                    return;
+                }
+
+                if (!snapshot.exists()) {
+                    // Room is empty, safe to create.
+                    console.log("Room does not exist. Creating room...");
+                    await createRoom(roomRef);
+                } else {
+                    // Room exists, analyze its state.
+                    if (roomData.answer) {
+                        // This room is full or stale. Delete it so a new one can be made.
+                        console.log("Found a full/stale room. Deleting it now...");
+                        await deleteDoc(roomRef);
+                        // The listener will fire again with snapshot.exists() as false, triggering createRoom().
+                    } else if (roomData.offer) {
+                        // Room has an offer, let's try to join.
                         if (roomData.creatorId !== currentUserId) {
-                           console.log("9b. Room has offer. Calling answerCall().");
+                           console.log("Room has an offer. Attempting to join...");
                            await answerCall(roomRef, roomData);
+                        } else {
+                           console.log("I am the creator of this room. Waiting for someone to join.");
                         }
                     }
-                }
-
-                if (isRoomCreator && peerConnection && !peerConnection.currentRemoteDescription && roomData?.answer) {
-                    console.log("10. Creator received an answer. Setting remote description.");
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(roomData.answer));
-                }
-
-                if (!snapshot.exists() && peerConnection) {
-                    resetConnection();
                 }
             }, (error) => {
                 console.error("Snapshot listener error:", error);
@@ -181,7 +176,6 @@
 
         async function createRoom(roomRef) {
             if (peerConnection) return;
-            console.log("CREATE_ROOM: Starting...");
             isRoomCreator = true;
             updateStatus("Searching for partner...", 'connecting');
 
@@ -191,7 +185,6 @@
             } catch (e) {
                 console.error("getUserMedia Error:", e);
                 updateStatus("Microphone access needed", 'disconnected');
-                showAlert(`Mic Error: ${e.name}. See console.`);
                 isRoomCreator = false;
                 return;
             }
@@ -206,12 +199,10 @@
             await setDoc(roomRef, { offer, creatorId: currentUserId, createdAt: serverTimestamp() });
             
             peerConnection = pc; 
-            console.log("CREATE_ROOM: Finished successfully.");
         }
         
         async function answerCall(roomRef, roomData) {
             if (peerConnection) return;
-            console.log("ANSWER_CALL: Starting...");
             isRoomCreator = false;
             updateStatus("Connecting to partner...", 'connecting');
 
@@ -221,7 +212,6 @@
             } catch(e) {
                 console.error("getUserMedia Error:", e);
                 updateStatus("Microphone access needed", 'disconnected');
-                showAlert(`Mic Error: ${e.name}. See console.`);
                 return;
             }
 
@@ -236,7 +226,6 @@
             await updateDoc(roomRef, { answer, joinerId: currentUserId });
 
             peerConnection = pc;
-            console.log("ANSWER_CALL: Finished successfully.");
         }
 
         function initializePeerConnection(roomRef) {
