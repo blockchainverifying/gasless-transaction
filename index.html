@@ -41,9 +41,24 @@
         .custom-scrollbar::-webkit-scrollbar-track { background: #1e293b; } /* slate-800 */
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; } /* slate-600 */
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #64748b; } /* slate-500 */
+        
+        #notification-bar {
+             transition: transform 0.5s ease-in-out;
+        }
+        
     </style>
 </head>
 <body class="bg-gradient-to-br from-slate-900 to-gray-900 text-white flex items-center justify-center min-h-screen p-2 md:p-4">
+
+    <!-- Notification Bar -->
+    <div id="notification-bar" class="fixed top-0 left-1/2 -translate-x-1/2 w-full max-w-md p-4 bg-sky-600 text-white shadow-lg rounded-b-lg z-50 transform -translate-y-full">
+        <div class="flex items-center">
+            <p class="flex-grow">
+                <strong id="notification-sender"></strong>: <span id="notification-text"></span>
+            </p>
+            <button id="speak-notification-btn" class="ml-4 text-xl hover:text-sky-200"><i class="fas fa-volume-up"></i></button>
+        </div>
+    </div>
 
     <div class="w-full max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
         
@@ -93,7 +108,7 @@
             </div>
         </div>
 
-        <!-- Right Panel: Participants & Photos -->
+        <!-- Right Panel: Participants, Chat & Photos -->
         <div class="md:col-span-2 glass-card rounded-2xl shadow-2xl p-6">
             <!-- Participants List -->
             <div>
@@ -101,22 +116,34 @@
                     <i class="fas fa-users mr-3 text-sky-400"></i>
                     Online Users (<span id="connectedUsers">0</span>)
                 </h2>
-                <div id="participants-list" class="h-40 overflow-y-auto custom-scrollbar pr-2 space-y-2">
-                    <!-- Participant items will be injected here -->
+                <div id="participants-list" class="h-32 overflow-y-auto custom-scrollbar pr-2 space-y-2">
                     <p class="text-gray-400">Sign in to see other users.</p>
                 </div>
             </div>
 
-            <hr class="border-slate-700 my-6">
+            <hr class="border-slate-700 my-4">
+
+            <!-- Chat -->
+            <div>
+                <h2 class="text-xl font-semibold mb-3 flex items-center">
+                    <i class="fas fa-comments mr-3 text-green-400"></i>
+                    Chat
+                </h2>
+                <div class="flex space-x-2">
+                    <input type="text" id="messageInput" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Type a message...">
+                    <button id="sendMessageBtn" class="bg-green-600 hover:bg-green-500 rounded-lg px-4 py-2 text-white"><i class="fas fa-paper-plane"></i></button>
+                </div>
+            </div>
+
+            <hr class="border-slate-700 my-4">
             
             <!-- Shared Photos -->
             <div>
-                 <h2 class="text-xl font-semibold mb-4 flex items-center">
+                 <h2 class="text-xl font-semibold mb-3 flex items-center">
                     <i class="fas fa-camera-retro mr-3 text-purple-400"></i>
                     Shared Photos
                 </h2>
-                <div id="photos-container" class="h-80 overflow-y-auto custom-scrollbar grid grid-cols-2 sm:grid-cols-3 gap-4 pr-2">
-                    <!-- Photo cards will be injected here -->
+                <div id="photos-container" class="h-56 overflow-y-auto custom-scrollbar grid grid-cols-2 sm:grid-cols-3 gap-4 pr-2">
                     <p id="no-photos-msg" class="text-gray-400 col-span-full">No photos shared yet.</p>
                 </div>
             </div>
@@ -163,10 +190,14 @@
         const participantsListEl = document.getElementById('participants-list');
         const photosContainerEl = document.getElementById('photos-container');
         const noPhotosMsg = document.getElementById('no-photos-msg');
-        // Modals
+        // Modals & Notifications
         const countdownModal = document.getElementById('countdown-modal');
         const countdownMessageEl = document.getElementById('countdown-message');
         const countdownTimerEl = document.getElementById('countdown-timer');
+        const notificationBar = document.getElementById('notification-bar');
+        const notificationSenderEl = document.getElementById('notification-sender');
+        const notificationTextEl = document.getElementById('notification-text');
+        const speakNotificationBtn = document.getElementById('speak-notification-btn');
         const photoCanvas = document.getElementById('photo-canvas');
         const captureVideoEl = document.getElementById('capture-view');
         // File Player
@@ -175,6 +206,9 @@
         const fileNameEl = document.getElementById('fileName');
         const stopFileBtn = document.getElementById('stopFileBtn');
         const fileAudioPlayer = document.getElementById('fileAudioPlayer');
+        // Chat
+        const messageInput = document.getElementById('messageInput');
+        const sendMessageBtn = document.getElementById('sendMessageBtn');
 
 
         // --- App State ---
@@ -183,12 +217,17 @@
         let myName = null;
         let micStream, screenStream, fileAudioStream;
         let peerConnections = {}; 
-        let audioContext; 
+        let audioContext;
+        let joinTimestamp;
         // Subscriptions
-        let participantsUnsubscribe, signalsUnsubscribe, requestsUnsubscribe, photosUnsubscribe;
+        let participantsUnsubscribe, signalsUnsubscribe, requestsUnsubscribe, photosUnsubscribe, messagesUnsubscribe;
         let isMuted = true;
         let isScreenSharing = false;
         let isFilePlaying = false;
+        // TTS & Notification
+        let hindiVoice = null;
+        let notificationTimeout;
+
 
         // --- Firebase Config ---
         const firebaseConfig = {
@@ -207,11 +246,13 @@
             const app = initializeApp(firebaseConfig);
             db = getFirestore(app);
             auth = getAuth(app);
+            setupTTS();
             
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
                     myId = user.uid;
                     myName = user.displayName;
+                    joinTimestamp = new Date(); // Set timestamp when user joins
                     authContainer.classList.add('hidden');
                     userInfoEl.classList.remove('hidden');
                     userNameEl.textContent = `Welcome, ${myName.split(' ')[0]}`;
@@ -232,21 +273,17 @@
             // Event Listeners
             googleSignInBtn.addEventListener('click', () => {
                 const provider = new GoogleAuthProvider();
-                // Set persistence to LOCAL to keep user signed in across browser sessions.
                 setPersistence(auth, browserLocalPersistence)
-                  .then(() => {
-                    return signInWithPopup(auth, provider);
-                  })
-                  .catch((error) => {
-                    console.error("Sign-in persistence error:", error);
-                    updateStatus("Sign-in failed. Please try again.");
-                  });
+                  .then(() => signInWithPopup(auth, provider))
+                  .catch((error) => updateStatus("Sign-in failed."));
             });
             signOutBtn.addEventListener('click', () => signOut(auth));
             micBtn.addEventListener('click', () => toggleMic());
             shareScreenBtn.addEventListener('click', toggleScreenShare);
             audioFileInput.addEventListener('change', playSongFromFile);
             stopFileBtn.addEventListener('click', stopSongFromFile);
+            sendMessageBtn.addEventListener('click', sendMessage);
+            messageInput.addEventListener('keyup', (e) => { if (e.key === 'Enter') sendMessage(); });
         }
 
         async function setupMediaAndJoinChannel() {
@@ -262,18 +299,95 @@
              }
         }
         
+        // --- Text-to-Speech ---
+        function setupTTS() {
+            if (!('speechSynthesis' in window)) {
+                console.warn("Browser does not support Text-to-Speech.");
+                return;
+            }
+            const setVoice = () => {
+                const voices = speechSynthesis.getVoices();
+                hindiVoice = voices.find(voice => voice.lang === 'hi-IN');
+            };
+
+            if (speechSynthesis.getVoices().length) {
+                setVoice();
+            } else {
+                speechSynthesis.onvoiceschanged = setVoice;
+            }
+        }
+
+        function speakText(text) {
+            if (!hindiVoice) {
+                console.warn("Hindi voice not available. Cannot speak.");
+                return;
+            }
+            speechSynthesis.cancel(); // Cancel any previous speech
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.voice = hindiVoice;
+            utterance.lang = 'hi-IN';
+            utterance.rate = 0.95;
+            speechSynthesis.speak(utterance);
+        }
+
+        // --- Chat & Notification ---
+        function sendMessage() {
+            const text = messageInput.value.trim();
+            if (text === '' || !myId) return;
+
+            const messagesRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'messages');
+            addDoc(messagesRef, {
+                fromId: myId,
+                fromName: myName,
+                text: text,
+                timestamp: serverTimestamp()
+            });
+            messageInput.value = '';
+        }
+
+        function listenForMessages() {
+            if (messagesUnsubscribe) messagesUnsubscribe();
+            const messagesRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'messages');
+            // Only get messages that were sent after the user joined
+            const q = query(messagesRef, where("timestamp", ">=", joinTimestamp), orderBy("timestamp", "desc"));
+            
+            messagesUnsubscribe = onSnapshot(q, (snapshot) => {
+                snapshot.docChanges().forEach((change) => {
+                    // We only care about new messages added after we started listening
+                    if (change.type === 'added' && !change.doc.metadata.hasPendingWrites) {
+                        const msg = change.doc.data();
+                        if (msg.fromId !== myId) { // Don't show notifications for our own messages
+                            showNotification(msg.fromName, msg.text);
+                        }
+                    }
+                });
+            });
+        }
+
+        function showNotification(sender, text) {
+            clearTimeout(notificationTimeout); // Clear previous timeout if any
+            notificationSenderEl.textContent = sender;
+            notificationTextEl.textContent = text;
+            
+            notificationBar.classList.remove('-translate-y-full');
+
+            speakText(text);
+
+            // Add listener to the speak button for re-playing
+            speakNotificationBtn.onclick = () => speakText(text);
+            
+            notificationTimeout = setTimeout(() => {
+                notificationBar.classList.add('-translate-y-full');
+            }, 7000); // Hide after 7 seconds
+        }
+
         // --- Music Player Logic ---
         function playSongFromFile(event) {
             const file = event.target.files[0];
-            if (!file) {
-                return;
-            }
+            if (!file) return;
 
             try {
-                if (!audioContext) {
-                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                }
-
+                if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 const objectURL = URL.createObjectURL(file);
                 fileAudioPlayer.src = objectURL;
                 fileAudioPlayer.play().then(() => {
@@ -283,7 +397,6 @@
                         source.connect(destination);
                         fileAudioStream = destination.stream;
                     }
-                    
                     const fileAudioTrack = fileAudioStream.getAudioTracks()[0];
                     if (fileAudioTrack) {
                         replaceTrackInPeers(fileAudioTrack);
@@ -292,47 +405,33 @@
                         isFilePlaying = true;
                         updateControlsForFilePlayback(true);
                     }
-                }).catch(e => {
-                    console.error("Error playing file:", e);
-                    updateStatus("Error: Could not play audio file.");
-                });
-            } catch (e) {
-                console.error("AudioContext error:", e);
-                updateStatus("Error: Could not process audio.");
-            }
+                }).catch(e => updateStatus("Error: Could not play audio file."));
+            } catch (e) { updateStatus("Error: Could not process audio."); }
         }
         
         function stopSongFromFile() {
             const currentSrc = fileAudioPlayer.src;
             fileAudioPlayer.pause();
             fileAudioPlayer.src = "";
-            if (currentSrc) {
-                URL.revokeObjectURL(currentSrc); // Clean up the blob URL to free memory
-            }
+            if (currentSrc) URL.revokeObjectURL(currentSrc);
             isFilePlaying = false;
-
             const micTrack = micStream.getAudioTracks()[0];
-            if (micTrack) {
-                replaceTrackInPeers(micTrack);
-            }
+            if (micTrack) replaceTrackInPeers(micTrack);
             updateControlsForFilePlayback(false);
             updateStatus("Connected to Channel");
             fileNameEl.textContent = "Select Audio File";
-            audioFileInput.value = ""; // Reset file input
+            audioFileInput.value = "";
         }
 
         function updateControlsForFilePlayback(isPlaying) {
+            micBtn.disabled = isPlaying;
+            shareScreenBtn.disabled = isPlaying;
+            stopFileBtn.classList.toggle('hidden', !isPlaying);
             if (isPlaying) {
-                micBtn.disabled = true;
-                shareScreenBtn.disabled = true;
                 micIcon.className = 'fas fa-music text-2xl text-sky-400';
                 micBtn.classList.remove('active', 'bg-green-500/20');
-                stopFileBtn.classList.remove('hidden');
             } else {
-                micBtn.disabled = false;
-                shareScreenBtn.disabled = false;
-                toggleMic(false); // Reset mic to its previous state
-                stopFileBtn.classList.add('hidden');
+                toggleMic(false);
             }
         }
 
@@ -348,7 +447,6 @@
                     btn.textContent = 'Request Photo';
                 }, 10000); 
             }
-
             const requestsRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'photo_triggers');
             addDoc(requestsRef, {
                 fromId: myId, fromName: myName, toId: targetId, timestamp: serverTimestamp()
@@ -358,13 +456,10 @@
         function listenForPhotoTriggers() {
             if (requestsUnsubscribe) requestsUnsubscribe();
             const requestsRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'photo_triggers');
-            const q = query(requestsRef, where("toId", "==", myId));
-            
+            const q = query(requestsRef, where("toId", "==", myId), where("timestamp", ">=", joinTimestamp));
             requestsUnsubscribe = onSnapshot(q, (snapshot) => {
                 snapshot.docChanges().forEach((change) => {
-                    if (change.type === 'added') {
-                        handlePhotoTrigger(change.doc);
-                    }
+                    if (change.type === 'added') handlePhotoTrigger(change.doc);
                 });
             });
         }
@@ -385,7 +480,6 @@
                 countdownMessageEl.textContent = `${fromName} wants your photo! Aapki photo li ja rahi hai...`;
                 countdownTimerEl.innerHTML = '3';
                 countdownModal.classList.remove('hidden');
-                
                 let count = 3;
                 const countdownInterval = setInterval(async () => {
                     count--;
@@ -411,20 +505,16 @@
                 tempVideoStream = await navigator.mediaDevices.getUserMedia({ video: true });
                 captureVideoEl.srcObject = tempVideoStream;
                 await new Promise(resolve => { captureVideoEl.onloadedmetadata = resolve; });
-
                 const context = photoCanvas.getContext('2d');
                 photoCanvas.width = captureVideoEl.videoWidth;
                 photoCanvas.height = captureVideoEl.videoHeight;
                 context.drawImage(captureVideoEl, 0, 0, photoCanvas.width, photoCanvas.height);
-
                 const dataUrl = photoCanvas.toDataURL('image/jpeg', 0.8);
-
                 const photosRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'shared_photos');
                 await addDoc(photosRef, {
                     fromId: myId, fromName: myName, photoDataUrl: dataUrl, timestamp: serverTimestamp()
                 });
             } catch (e) {
-                console.error("Could not capture photo:", e);
                 updateStatus("Camera access failed.");
                 countdownMessageEl.textContent = "Camera access failed!";
                 countdownTimerEl.innerHTML = '<i class="fas fa-exclamation-triangle text-red-500"></i>';
@@ -443,7 +533,6 @@
             const photosRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'shared_photos');
             const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
             const q = query(photosRef, where("timestamp", ">=", oneHourAgo), orderBy("timestamp", "desc"));
-
             photosUnsubscribe = onSnapshot(q, (snapshot) => {
                 photosContainerEl.innerHTML = '';
                 if(snapshot.empty) {
@@ -466,19 +555,17 @@
             });
         }
 
-
         // --- Channel & WebRTC Logic ---
         async function joinChannel() {
             const channelRef = doc(db, 'radio_channels', DEFAULT_CHANNEL_ID);
             const participantsRef = collection(channelRef, 'participants');
-            
             await setDoc(doc(participantsRef, myId), { name: myName, joinedAt: serverTimestamp() });
             updateStatus("Connected to Channel");
-            
             listenForParticipants(participantsRef);
             listenForOffers();
             listenForPhotoTriggers();
             listenForSharedPhotos();
+            listenForMessages();
         }
 
         function listenForParticipants(participantsRef) {
@@ -487,13 +574,9 @@
                 participantsListEl.innerHTML = '';
                 const currentParticipants = new Map();
                 snapshot.forEach(doc => {
-                    if (doc.id !== myId) {
-                        currentParticipants.set(doc.id, doc.data());
-                    }
+                    if (doc.id !== myId) currentParticipants.set(doc.id, doc.data());
                 });
-                
                 connectedUsersEl.textContent = currentParticipants.size + 1;
-                
                 if(currentParticipants.size === 0) {
                      participantsListEl.innerHTML = '<p class="text-gray-400">You are the only one here.</p>';
                 } else {
@@ -508,7 +591,6 @@
                         document.getElementById(`request-btn-${id}`).onclick = () => requestPhoto(id, data.name);
                     });
                 }
-                
                 const participantIds = new Set(currentParticipants.keys());
                 for (const participantId of participantIds) {
                     if (myId < participantId) createPeerConnection(participantId, true);
@@ -532,6 +614,7 @@
             signalsUnsubscribe?.();
             requestsUnsubscribe?.();
             photosUnsubscribe?.();
+            messagesUnsubscribe?.();
             peerConnections = {};
             micStream = null;
             screenStream = null;
@@ -603,10 +686,8 @@
             if (peerConnections[partnerId]) return;
             const pc = new RTCPeerConnection(servers);
             peerConnections[partnerId] = pc;
-            
             const initialTrack = micStream.getAudioTracks()[0];
             if(initialTrack) pc.addTrack(initialTrack, micStream);
-
             pc.ontrack = event => {
                 let audioEl = document.getElementById(`audio_${partnerId}`);
                 if (!audioEl) {
