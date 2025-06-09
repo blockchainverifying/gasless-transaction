@@ -3,61 +3,49 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Private Voice Link</title>
+    <title>Public Radio Channel</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-        }
+        body { font-family: 'Inter', sans-serif; }
         .status-light {
             width: 12px;
             height: 12px;
             border-radius: 50%;
             display: inline-block;
-            transition: background-color 0.5s ease-in-out;
+            transition: background-color 0.5s ease;
         }
-        .status-light.disconnected { background-color: #ef4444; } /* red-500 */
-        .status-light.connecting { 
-            background-color: #f59e0b; /* amber-500 */
-            animation: pulse-amber 1.5s infinite;
-        }
-        .status-light.connected { 
+        .status-disconnected { background-color: #f59e0b; } /* amber-500 */
+        .status-connected { 
             background-color: #22c55e; /* green-500 */
             animation: pulse-green 2s infinite;
         }
-        @keyframes pulse-amber {
-            0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
-            50% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
-        }
         @keyframes pulse-green {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.6; }
+            0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+            50% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
         }
     </style>
 </head>
 <body class="bg-gray-900 text-white flex items-center justify-center min-h-screen">
 
-    <div class="w-full max-w-sm mx-auto p-8 bg-gray-800 rounded-2xl shadow-2xl border border-gray-700 text-center">
+    <div class="w-full max-w-md mx-auto p-8 bg-gray-800 rounded-2xl shadow-2xl border border-gray-700 text-center">
         
-        <h1 class="text-3xl font-bold text-white mb-3">Private Voice Link</h1>
-        <p class="text-gray-400 mb-8">Direct communication channel.</p>
+        <h1 class="text-3xl font-bold text-white mb-3">Public Radio: 91.5 FM</h1>
+        <p class="text-gray-400 mb-8">Aap live hain. Channel par sabhi log aapko sun sakte hain.</p>
 
         <!-- Status Display -->
         <div class="bg-gray-700 rounded-lg p-4 flex items-center justify-center space-x-3">
-            <div id="statusLight" class="status-light disconnected"></div>
-            <span id="status" class="font-medium text-gray-300">Initializing...</span>
+            <div id="statusLight" class="status-light status-disconnected"></div>
+            <span id="status" class="font-medium text-gray-300">Connecting to channel...</span>
         </div>
         
-        <div class="mt-6 text-xs text-gray-500">
-            My User ID: <span id="userId" class="font-mono">Loading...</span>
+        <div id="user-count" class="mt-4 text-sm text-gray-400">
+            <span id="connectedUsers">0</span> users connected
         </div>
 
-        <!-- Hidden Audio Players -->
-        <div class="hidden">
-            <audio id="localAudio" muted autoplay playsinline></audio>
-            <audio id="remoteAudio" autoplay playsinline></audio>
-        </div>
+        <!-- Audio elements dynamically added here -->
+        <div id="audio-container" class="hidden"></div>
+        <audio id="localAudio" muted autoplay playsinline></audio>
         
     </div>
 
@@ -65,30 +53,24 @@
         // Firebase modules import
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, addDoc } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
+        import { getFirestore, doc, onSnapshot, collection, addDoc, getDocs, deleteDoc, setDoc, query, where } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
 
-        // --- ZAROORI CONFIGURATION ---
-        // Default User IDs pehle se set hain.
-        // Aap aur aapke friend, dono ko same file use karni hai.
-        const USER_A_ID = 'private-voice-user-alpha-7712';
-        const USER_B_ID = 'private-voice-user-beta-8823';
+        // --- Channel Configuration ---
+        const DEFAULT_CHANNEL_ID = 'radio-91.5-fm';
         
         // --- DOM Elements ---
-        const userIdEl = document.getElementById('userId');
         const localAudio = document.getElementById('localAudio');
-        const remoteAudio = document.getElementById('remoteAudio');
         const statusEl = document.getElementById('status');
         const statusLight = document.getElementById('statusLight');
+        const audioContainer = document.getElementById('audio-container');
+        const connectedUsersEl = document.getElementById('connectedUsers');
         
         // --- App State ---
         let db, auth;
-        let peerConnection;
         let localStream;
         let myId = null;
-        let partnerId = null;
-        let isCaller = false;
-        let roomUnsubscribe = null;
-        let reconnectInterval = null;
+        let peerConnections = {}; // Sabhi connections ko store karega
+        let participantsUnsubscribe = null;
 
         // Firebase configuration
         const firebaseConfig = {
@@ -101,7 +83,7 @@
             measurementId: "G-N31J1LYY6G"
         };
         
-        const servers = { iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }] };
+        const servers = { iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }] };
 
         // --- Main Initialization ---
         async function initialize() {
@@ -110,186 +92,161 @@
                 db = getFirestore(app);
                 auth = getAuth(app);
                 
+                // Pehle microphone access lein
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                localAudio.srcObject = localStream;
+                
                 onAuthStateChanged(auth, user => {
                     if (user && !myId) { 
                         myId = user.uid;
-                        
-                        // User role set karein
-                        // Yeh anumaan lagata hai ki pehla user A hai aur dusra B.
-                        // Yeh ek saral tarika hai, asli production app mein aapko alag tarika use karna chahiye.
-                        if (!window.roleAssigned) {
-                            const docRef = doc(db, 'private_channels_status', 'role_assigner');
-                            getDoc(docRef).then(docSnap => {
-                                if (!docSnap.exists() || docSnap.data().currentUser === USER_B_ID) {
-                                    setDoc(docRef, { currentUser: USER_A_ID });
-                                    assignRole(USER_A_ID);
-                                } else {
-                                    setDoc(docRef, { currentUser: USER_B_ID });
-                                    assignRole(USER_B_ID);
-                                }
-                                window.roleAssigned = true;
-                            });
-                        }
+                        joinChannel();
                     }
                 });
                 
                 await signInAnonymously(auth);
 
             } catch (e) {
-                console.error("Initialization Error:", e);
-                updateStatus("Connection Error", 'disconnected');
+                console.error("Initialization/Mic Error:", e);
+                updateStatus("Mic/Connection Error", 'disconnected');
             }
         }
 
-        function assignRole(assignedRole) {
-            userIdEl.textContent = assignedRole;
-
-            if (assignedRole === USER_A_ID) {
-                partnerId = USER_B_ID;
-                isCaller = true;
-            } else {
-                partnerId = USER_A_ID;
-                isCaller = false;
-            }
-            startConnectionProcess();
-        }
-        
-        function startConnectionProcess() {
-            if (isCaller) {
-                reconnectInterval = setInterval(() => {
-                    if (!peerConnection) {
-                         createOrJoinRoom();
+        async function joinChannel() {
+            const channelRef = doc(db, 'radio_channels', DEFAULT_CHANNEL_ID);
+            const participantsRef = collection(channelRef, 'participants');
+            
+            // Channel mein apni entry karein
+            await setDoc(doc(participantsRef, myId), { joinedAt: Date.now() });
+            updateStatus("Connected", 'connected');
+            
+            // Dusre participants ke liye listen karein
+            if(participantsUnsubscribe) participantsUnsubscribe();
+            participantsUnsubscribe = onSnapshot(participantsRef, (snapshot) => {
+                const currentParticipants = [];
+                snapshot.forEach(doc => {
+                    if (doc.id !== myId) {
+                        currentParticipants.push(doc.id);
                     }
-                }, 5000); 
-            }
-            listenForRoomChanges();
-        }
+                });
+                
+                connectedUsersEl.textContent = currentParticipants.length + 1;
 
-        async function createOrJoinRoom() {
-            if (peerConnection) return;
-            const roomRef = doc(db, 'private_channels', partnerId);
-            const roomSnapshot = await getDoc(roomRef);
-
-            if (!roomSnapshot.exists()) {
-                await createRoom(roomRef);
-            }
-        }
-        
-        function listenForRoomChanges() {
-            const roomRef = doc(db, 'private_channels', isCaller ? partnerId : USER_A_ID);
-            if(roomUnsubscribe) roomUnsubscribe();
-
-            roomUnsubscribe = onSnapshot(roomRef, async (snapshot) => {
-                const data = snapshot.data();
-
-                if (!snapshot.exists() && peerConnection) {
-                    await resetConnection("Partner disconnected");
+                // Naye participant se connect karein
+                for (const participantId of currentParticipants) {
+                    if (!peerConnections[participantId]) {
+                        createPeerConnection(participantId, true); // I am the caller
+                    }
                 }
                 
-                if (peerConnection) return;
-
-                if (snapshot.exists() && data.offer && !isCaller) {
-                    await answerCall(roomRef, data);
+                // Disconnected participant ko remove karein
+                for (const participantId in peerConnections) {
+                    if (!currentParticipants.includes(participantId)) {
+                        peerConnections[participantId].close();
+                        delete peerConnections[participantId];
+                        const audioEl = document.getElementById(`audio_${participantId}`);
+                        if (audioEl) audioEl.remove();
+                    }
                 }
             });
+
+            // Incoming calls ke liye listen karein
+            listenForOffers();
         }
 
-
-        async function createRoom(roomRef) {
-            updateStatus("Calling partner...", 'connecting');
-            const pc = initializePeerConnection();
-            
-            try {
-                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-                localAudio.srcObject = localStream;
-            } catch (e) { return updateStatus("Mic Error", 'disconnected'); }
-            
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            
-            await setDoc(roomRef, { offer: { sdp: offer.sdp, type: offer.type } });
-            peerConnection = pc;
-        }
-
-        async function answerCall(roomRef, roomData) {
-            updateStatus("Answering call...", 'connecting');
-            const pc = initializePeerConnection();
-            
-            try {
-                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-                localAudio.srcObject = localStream;
-            } catch (e) { return updateStatus("Mic Error", 'disconnected'); }
-
-            await pc.setRemoteDescription(new RTCSessionDescription(roomData.offer));
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-
-            await updateDoc(roomRef, { answer: { type: answer.type, sdp: answer.sdp } });
-            peerConnection = pc;
-        }
-
-        function initializePeerConnection() {
+        function createPeerConnection(partnerId, isCaller) {
             const pc = new RTCPeerConnection(servers);
+            peerConnections[partnerId] = pc;
+            
+            localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
-            pc.ontrack = event => { remoteAudio.srcObject = event.streams[0]; };
+            pc.ontrack = event => {
+                let audioEl = document.getElementById(`audio_${partnerId}`);
+                if (!audioEl) {
+                    audioEl = document.createElement('audio');
+                    audioEl.id = `audio_${partnerId}`;
+                    audioEl.autoplay = true;
+                    audioContainer.appendChild(audioEl);
+                }
+                audioEl.srcObject = event.streams[0];
+            };
+
+            pc.onicecandidate = e => e.candidate && sendSignal({ candidate: e.candidate.toJSON() }, partnerId);
 
             pc.onconnectionstatechange = () => {
-                if (pc.connectionState === 'connected') {
-                    if(reconnectInterval) clearInterval(reconnectInterval);
-                    reconnectInterval = null;
-                    updateStatus('Connected', 'connected');
-                } else if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
-                    resetConnection("Connection lost");
+                if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
+                    pc.close();
+                    delete peerConnections[partnerId];
                 }
             };
             
-            const signalingDocRef = doc(db, 'private_channels', isCaller ? partnerId : USER_A_ID);
-            const myCandidates = collection(signalingDocRef, isCaller ? 'callerCandidates' : 'answererCandidates');
-            const partnerCandidates = collection(signalingDocRef, isCaller ? 'answererCandidates' : 'callerCandidates');
+            if (isCaller) {
+                pc.createOffer().then(offer => {
+                    pc.setLocalDescription(offer);
+                    sendSignal({ offer }, partnerId);
+                });
+            }
+        }
+
+        async function sendSignal(data, recipientId) {
+            const signalRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'signals');
+            await addDoc(signalRef, { ...data, from: myId, to: recipientId });
+        }
+        
+        function listenForOffers() {
+            const signalsRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'signals');
+            const q = query(signalsRef, where("to", "==", myId));
             
-            pc.onicecandidate = e => e.candidate && addDoc(myCandidates, e.candidate.toJSON());
-            
-            onSnapshot(partnerCandidates, snapshot => {
-                snapshot.docChanges().forEach(change => {
-                    if(change.type === 'added' && pc && pc.signalingState !== "closed") {
-                        pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
+            onSnapshot(q, (snapshot) => {
+                snapshot.docChanges().forEach(async (change) => {
+                    if (change.type === 'added') {
+                        const signal = change.doc.data();
+                        const partnerId = signal.from;
+
+                        if (signal.offer) {
+                            if (!peerConnections[partnerId]) {
+                                createPeerConnection(partnerId, false); // I am the answerer
+                            }
+                            await peerConnections[partnerId].setRemoteDescription(new RTCSessionDescription(signal.offer));
+                            const answer = await peerConnections[partnerId].createAnswer();
+                            await peerConnections[partnerId].setLocalDescription(answer);
+                            sendSignal({ answer }, partnerId);
+                        } 
+                        else if (signal.answer) {
+                            if(peerConnections[partnerId]) {
+                                await peerConnections[partnerId].setRemoteDescription(new RTCSessionDescription(signal.answer));
+                            }
+                        } 
+                        else if (signal.candidate) {
+                            if (peerConnections[partnerId]) {
+                                await peerConnections[partnerId].addIceCandidate(new RTCIceCandidate(signal.candidate));
+                            }
+                        }
+                        // Signal process hone ke baad use delete kar dein
+                        await deleteDoc(change.doc.ref);
                     }
                 });
             });
-            
-            return pc;
         }
         
-        async function resetConnection(reason) {
-            if (peerConnection) {
-                peerConnection.close();
-                peerConnection = null;
+        async function leaveChannel() {
+            if (myId) {
+                const selfRef = doc(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'participants', myId);
+                await deleteDoc(selfRef);
             }
-            if(localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-                localStream = null;
+            for (const partnerId in peerConnections) {
+                peerConnections[partnerId].close();
             }
-            updateStatus(reason || 'Disconnected', 'disconnected');
-            if (isCaller) {
-                const roomRef = doc(db, 'private_channels', partnerId);
-                await deleteDoc(roomRef).catch(() => {});
-                startConnectionProcess(); 
-            }
+            peerConnections = {};
+            if(localStream) localStream.getTracks().forEach(track => track.stop());
+            if(participantsUnsubscribe) participantsUnsubscribe();
         }
 
         function updateStatus(message, state) {
             statusEl.textContent = message;
-            statusLight.className = 'status-light ' + state;
+            statusLight.className = 'status-light status-' + state;
         }
         
-        window.addEventListener('beforeunload', () => {
-             if (isCaller) {
-                const roomRef = doc(db, 'private_channels', partnerId);
-                deleteDoc(roomRef); 
-             }
-        });
+        window.addEventListener('beforeunload', leaveChannel);
 
         initialize();
 
