@@ -32,6 +32,13 @@
             50% { box-shadow: 0 0 35px rgba(34, 197, 94, 0.9); }
             100% { box-shadow: 0 0 25px rgba(34, 197, 94, 0.6); }
         }
+        .google-btn {
+            transition: all 0.3s ease;
+        }
+        .google-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
     </style>
 </head>
 <body class="bg-gradient-to-br from-slate-900 to-gray-900 text-white flex items-center justify-center min-h-screen p-4">
@@ -41,20 +48,30 @@
         <h1 class="text-3xl font-bold text-white mb-2">Public Radio</h1>
         <p class="text-lg text-gray-400 mb-8">91.5 FM</p>
 
-        <!-- Control Buttons -->
+        <div id="auth-container">
+            <button id="googleSignInBtn" class="google-btn bg-white text-gray-800 font-semibold py-2 px-4 rounded-lg w-full flex items-center justify-center">
+                <i class="fab fa-google mr-3"></i>
+                Sign in with Google
+            </button>
+        </div>
+        <div id="user-info" class="hidden flex items-center justify-between mt-4">
+             <span id="userName" class="text-sm text-gray-300"></span>
+             <button id="signOutBtn" class="text-xs text-red-400 hover:text-red-300">Sign Out</button>
+        </div>
+
+
         <div class="my-8 flex justify-center items-center space-x-4">
-            <button id="micBtn" class="w-24 h-24 flex items-center justify-center bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-full transition-all duration-300 shadow-lg" disabled>
+            <button id="micBtn" class="w-24 h-24 flex items-center justify-center bg-slate-700 text-white font-bold rounded-full transition-all duration-300 shadow-lg" disabled>
                 <i id="micIcon" class="fas fa-microphone-slash text-3xl"></i>
             </button>
-             <button id="shareScreenBtn" class="w-24 h-24 flex flex-col items-center justify-center bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-full transition-all duration-300 shadow-lg" disabled>
+             <button id="shareScreenBtn" class="w-24 h-24 flex flex-col items-center justify-center bg-slate-700 text-white font-bold rounded-full transition-all duration-300 shadow-lg" disabled>
                 <i id="shareIcon" class="fas fa-desktop text-3xl"></i>
                 <span class="text-xs mt-1">Share</span>
             </button>
         </div>
 
-        <!-- Status Display -->
         <div class="bg-slate-900/50 rounded-lg p-3 flex items-center justify-center space-x-3">
-            <span id="status" class="font-medium text-gray-300">Connecting to channel...</span>
+            <span id="status" class="font-medium text-gray-300">Please sign in to connect.</span>
         </div>
         
         <div id="user-count" class="mt-4 text-sm text-gray-400 transition-opacity duration-500 opacity-0">
@@ -62,7 +79,6 @@
             <span id="connectedUsers">0</span> users connected
         </div>
 
-        <!-- Audio elements dynamically added here -->
         <div id="audio-container" class="hidden"></div>
         <audio id="localAudio" muted autoplay playsinline></audio>
         
@@ -71,7 +87,7 @@
     <script type="module">
         // Firebase modules import
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
         import { getFirestore, doc, onSnapshot, collection, addDoc, deleteDoc, setDoc, query, where } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
 
         // --- Channel Configuration ---
@@ -87,11 +103,17 @@
         const micIcon = document.getElementById('micIcon');
         const shareScreenBtn = document.getElementById('shareScreenBtn');
         const shareIcon = document.getElementById('shareIcon');
+        const googleSignInBtn = document.getElementById('googleSignInBtn');
+        const signOutBtn = document.getElementById('signOutBtn');
+        const authContainer = document.getElementById('auth-container');
+        const userInfoEl = document.getElementById('user-info');
+        const userNameEl = document.getElementById('userName');
+
         
         // --- App State ---
         let db, auth;
-        let micStream; // Sirf microphone stream
-        let screenStream; // Sirf screen/system audio stream
+        let micStream;
+        let screenStream; 
         let myId = null;
         let peerConnections = {}; 
         let participantsUnsubscribe = null;
@@ -112,38 +134,82 @@
         const servers = { iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }] };
 
         // --- Main Initialization ---
-        async function initialize() {
+        function initialize() {
             try {
                 const app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
                 
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        // User is signed in
+                        myId = user.uid;
+                        authContainer.classList.add('hidden');
+                        userInfoEl.classList.remove('hidden');
+                        userNameEl.textContent = `Welcome, ${user.displayName.split(' ')[0]}`;
+                        
+                        updateStatus("Initializing mic...");
+                        await setupMediaAndJoinChannel();
+
+                    } else {
+                        // User is signed out
+                        myId = null;
+                        authContainer.classList.remove('hidden');
+                        userInfoEl.classList.add('hidden');
+                        updateStatus("Please sign in to connect.");
+                        resetUI();
+                    }
+                });
+
+            } catch (e) {
+                console.error("Initialization Error:", e);
+                updateStatus("Initialization Error");
+            }
+
+            googleSignInBtn.addEventListener('click', () => {
+                const provider = new GoogleAuthProvider();
+                signInWithPopup(auth, provider)
+                    .catch(error => {
+                        console.error("Google Sign-In Error:", error);
+                        updateStatus("Sign-in failed. Please try again.");
+                    });
+            });
+
+            signOutBtn.addEventListener('click', () => {
+                leaveChannel();
+                signOut(auth);
+            });
+            
+            micBtn.addEventListener('click', () => toggleMic());
+            shareScreenBtn.addEventListener('click', toggleScreenShare);
+        }
+
+        async function setupMediaAndJoinChannel() {
+             try {
                 micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 localAudio.srcObject = micStream;
                 toggleMic(false); 
-                
-                onAuthStateChanged(auth, user => {
-                    if (user && !myId) { 
-                        myId = user.uid;
-                        shareScreenBtn.disabled = false;
-                        joinChannel();
-                    }
-                });
-                
-                await signInAnonymously(auth);
+                shareScreenBtn.disabled = false;
+                joinChannel();
+             } catch (e) {
+                 console.error("Mic Error:", e);
+                 updateStatus("Mic permission denied.");
+             }
+        }
 
-            } catch (e) {
-                console.error("Initialization/Mic Error:", e);
-                updateStatus("Mic/Connection Error");
-            }
-            micBtn.addEventListener('click', () => toggleMic());
-            shareScreenBtn.addEventListener('click', toggleScreenShare);
+        function resetUI() {
+            micBtn.disabled = true;
+            shareScreenBtn.disabled = true;
+            micIcon.className = 'fas fa-microphone-slash text-3xl';
+            micBtn.classList.remove('active', 'bg-green-500/20');
+            micBtn.classList.add('bg-slate-700');
+            userCountEl.classList.add('opacity-0');
         }
         
         // --- Audio Source Management ---
         function toggleMic(shouldToggle = true) {
             if (!micStream) return;
-            if (isScreenSharing) return; // Screen share ke dauran mic control na karein
+            if (isScreenSharing) return; 
 
             if(shouldToggle) isMuted = !isMuted;
             else isMuted = false;
@@ -176,7 +242,7 @@
                 
                 const screenAudioTrack = screenStream.getAudioTracks()[0];
                 if (!screenAudioTrack) {
-                    alert("Aapne audio share karne ki anumati nahi di. Kripya dobara koshish karein aur checkbox ko tick karein.");
+                    alert("You did not grant permission to share audio. Please try again and check the box.");
                     screenStream.getTracks().forEach(track => track.stop());
                     return;
                 }
@@ -184,12 +250,11 @@
                 isScreenSharing = true;
                 replaceTrackInPeers(screenAudioTrack);
 
-                // UI update karein
+                // Update UI
                 micBtn.disabled = true;
                 shareIcon.className = 'fas fa-stop-circle text-3xl text-red-400';
                 shareScreenBtn.querySelector('span').textContent = 'Stop';
 
-                // Jab user browser ke UI se share band kare
                 screenStream.getTracks().forEach(track => {
                     track.onended = () => stopScreenShare();
                 });
@@ -205,10 +270,10 @@
             screenStream.getTracks().forEach(track => track.stop());
             isScreenSharing = false;
 
-            // Mic audio par wapas switch karein
+            // Switch back to mic audio
             replaceTrackInPeers(micStream.getAudioTracks()[0]);
 
-            // UI reset karein
+            // Reset UI
             micBtn.disabled = false;
             shareIcon.className = 'fas fa-desktop text-3xl';
             shareScreenBtn.querySelector('span').textContent = 'Share';
@@ -342,17 +407,28 @@
         async function leaveChannel() {
             if (myId) {
                 const selfRef = doc(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'participants', myId);
-                await deleteDoc(selfRef);
+                await deleteDoc(selfRef).catch(e => console.error("Error leaving channel:", e));
             }
             Object.keys(peerConnections).forEach(cleanupPeerConnection);
             if(micStream) micStream.getTracks().forEach(track => track.stop());
             if(screenStream) screenStream.getTracks().forEach(track => track.stop());
             if(participantsUnsubscribe) participantsUnsubscribe();
+            
+            // Clear state
+            peerConnections = {};
+            micStream = null;
+            screenStream = null;
         }
 
         function updateStatus(message) { statusEl.textContent = message; }
         
-        window.addEventListener('beforeunload', leaveChannel);
+        window.addEventListener('beforeunload', () => {
+             // We call leaveChannel directly for robustness, but signOut will also trigger it
+             if(auth.currentUser) {
+                leaveChannel();
+                signOut(auth);
+             }
+        });
 
         initialize();
 
