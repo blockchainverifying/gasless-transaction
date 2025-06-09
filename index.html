@@ -74,6 +74,17 @@
                     </button>
                 </div>
 
+                <!-- Music URL Player -->
+                <div id="url-player-container" class="my-6 space-y-3 hidden">
+                    <p class="text-xs text-gray-400">Play from direct audio URL (.mp3, .wav)</p>
+                     <div class="flex space-x-2">
+                        <input type="url" id="songUrlInput" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-sky-500" placeholder="Paste audio URL...">
+                        <button id="playUrlBtn" class="bg-sky-600 hover:bg-sky-500 rounded-lg px-3 py-2 text-white"><i class="fas fa-play"></i></button>
+                        <button id="stopUrlBtn" class="bg-red-600 hover:bg-red-500 rounded-lg px-3 py-2 text-white hidden"><i class="fas fa-stop"></i></button>
+                    </div>
+                </div>
+
+
                 <div class="bg-slate-900/50 rounded-lg p-3 flex items-center justify-center space-x-3">
                     <span id="status" class="font-medium text-gray-300 text-sm">Please sign in.</span>
                 </div>
@@ -122,6 +133,8 @@
     <video id="capture-view" autoplay playsinline class="hidden"></video>
     <div id="audio-container" class="hidden"></div>
     <audio id="localAudio" muted autoplay playsinline></audio>
+    <audio id="urlAudioPlayer" crossOrigin="anonymous" class="hidden"></audio>
+
 
     <script type="module">
         // --- Firebase Modules ---
@@ -154,18 +167,26 @@
         const countdownTimerEl = document.getElementById('countdown-timer');
         const photoCanvas = document.getElementById('photo-canvas');
         const captureVideoEl = document.getElementById('capture-view');
+        // URL Player
+        const urlPlayerContainer = document.getElementById('url-player-container');
+        const songUrlInput = document.getElementById('songUrlInput');
+        const playUrlBtn = document.getElementById('playUrlBtn');
+        const stopUrlBtn = document.getElementById('stopUrlBtn');
+        const urlAudioPlayer = document.getElementById('urlAudioPlayer');
 
 
         // --- App State ---
         let db, auth;
         let myId = null;
         let myName = null;
-        let micStream, screenStream;
+        let micStream, screenStream, urlAudioStream;
         let peerConnections = {}; 
+        let audioContext; // To capture audio from URL
         // Subscriptions
         let participantsUnsubscribe, signalsUnsubscribe, requestsUnsubscribe, photosUnsubscribe;
         let isMuted = true;
         let isScreenSharing = false;
+        let isUrlPlaying = false;
 
         // --- Firebase Config ---
         const firebaseConfig = {
@@ -192,6 +213,7 @@
                     authContainer.classList.add('hidden');
                     userInfoEl.classList.remove('hidden');
                     userNameEl.textContent = `Welcome, ${myName.split(' ')[0]}`;
+                    urlPlayerContainer.classList.remove('hidden');
                     await setupMediaAndJoinChannel();
                 } else {
                     await leaveChannel();
@@ -199,6 +221,7 @@
                     myName = null;
                     authContainer.classList.remove('hidden');
                     userInfoEl.classList.add('hidden');
+                    urlPlayerContainer.classList.add('hidden');
                     updateStatus("Please sign in.");
                     resetUI();
                 }
@@ -212,6 +235,8 @@
             signOutBtn.addEventListener('click', () => signOut(auth));
             micBtn.addEventListener('click', () => toggleMic());
             shareScreenBtn.addEventListener('click', toggleScreenShare);
+            playUrlBtn.addEventListener('click', playSongFromUrl);
+            stopUrlBtn.addEventListener('click', stopSongFromUrl);
         }
 
         async function setupMediaAndJoinChannel() {
@@ -227,6 +252,77 @@
              }
         }
         
+        // --- Music Player Logic ---
+        function playSongFromUrl() {
+            const url = songUrlInput.value.trim();
+            if (!url) {
+                updateStatus("Please enter an audio URL.");
+                return;
+            }
+
+            try {
+                // Initialize AudioContext on user gesture
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+
+                urlAudioPlayer.src = url;
+                urlAudioPlayer.play().then(() => {
+                    if (!urlAudioStream) {
+                        const source = audioContext.createMediaElementSource(urlAudioPlayer);
+                        const destination = audioContext.createMediaStreamDestination();
+                        source.connect(destination);
+                        urlAudioStream = destination.stream;
+                    }
+                    
+                    const urlAudioTrack = urlAudioStream.getAudioTracks()[0];
+                    if (urlAudioTrack) {
+                        replaceTrackInPeers(urlAudioTrack);
+                        updateStatus(`Playing: ${url.split('/').pop()}`);
+                        isUrlPlaying = true;
+                        updateControlsForUrlPlayback(true);
+                    }
+                }).catch(e => {
+                    console.error("Error playing URL:", e);
+                    updateStatus("Error: Could not play audio URL.");
+                });
+            } catch (e) {
+                console.error("AudioContext error:", e);
+                updateStatus("Error: Could not process audio.");
+            }
+        }
+        
+        function stopSongFromUrl() {
+            urlAudioPlayer.pause();
+            urlAudioPlayer.src = "";
+            isUrlPlaying = false;
+
+            // Revert to microphone stream
+            const micTrack = micStream.getAudioTracks()[0];
+            if (micTrack) {
+                replaceTrackInPeers(micTrack);
+            }
+            updateControlsForUrlPlayback(false);
+            updateStatus("Connected to Channel");
+        }
+
+        function updateControlsForUrlPlayback(isPlaying) {
+            if (isPlaying) {
+                micBtn.disabled = true;
+                shareScreenBtn.disabled = true;
+                micIcon.className = 'fas fa-music text-2xl text-sky-400';
+                micBtn.classList.remove('active', 'bg-green-500/20');
+                playUrlBtn.classList.add('hidden');
+                stopUrlBtn.classList.remove('hidden');
+            } else {
+                micBtn.disabled = false;
+                shareScreenBtn.disabled = false;
+                toggleMic(false); // Reset mic to its previous state
+                playUrlBtn.classList.remove('hidden');
+                stopUrlBtn.classList.add('hidden');
+            }
+        }
+
         // --- Photo Sharing Logic ---
         function requestPhoto(targetId, targetName) {
             if (!myId || !targetId) return;
@@ -242,10 +338,7 @@
 
             const requestsRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'photo_triggers');
             addDoc(requestsRef, {
-                fromId: myId,
-                fromName: myName,
-                toId: targetId,
-                timestamp: serverTimestamp()
+                fromId: myId, fromName: myName, toId: targetId, timestamp: serverTimestamp()
             });
         }
 
@@ -257,7 +350,6 @@
             requestsUnsubscribe = onSnapshot(q, (snapshot) => {
                 snapshot.docChanges().forEach((change) => {
                     if (change.type === 'added') {
-                        // Handle the trigger, but don't block the listener
                         handlePhotoTrigger(change.doc);
                     }
                 });
@@ -267,18 +359,15 @@
         async function handlePhotoTrigger(doc) {
             const trigger = doc.data();
             try {
-                // This function now handles the entire flow and returns a promise
                 await startPhotoCountdownAndCapture(trigger.fromName);
             } catch (error) {
                 console.error("Photo capture process failed:", error);
             } finally {
-                // This is crucial: delete the trigger ONLY after the process is complete (success or fail)
                 await deleteDoc(doc.ref);
             }
         }
         
         function startPhotoCountdownAndCapture(fromName) {
-            // This function returns a promise that resolves or rejects when the capture is done
             return new Promise((resolve, reject) => {
                 countdownMessageEl.textContent = `${fromName} wants your photo! Aapki photo li ja rahi hai...`;
                 countdownTimerEl.innerHTML = '3';
@@ -293,11 +382,9 @@
                         clearInterval(countdownInterval);
                         countdownTimerEl.textContent = '📸';
                         try {
-                            // Await the capture and then resolve the main promise
                             await automaticPhotoCapture();
                             resolve();
                         } catch (e) {
-                            // If capture fails, reject the main promise
                             reject(e);
                         }
                     }
@@ -310,8 +397,6 @@
             try {
                 tempVideoStream = await navigator.mediaDevices.getUserMedia({ video: true });
                 captureVideoEl.srcObject = tempVideoStream;
-
-                // Wait for video metadata to ensure dimensions are correct
                 await new Promise(resolve => { captureVideoEl.onloadedmetadata = resolve; });
 
                 const context = photoCanvas.getContext('2d');
@@ -330,13 +415,13 @@
                 updateStatus("Camera access failed.");
                 countdownMessageEl.textContent = "Camera access failed!";
                 countdownTimerEl.innerHTML = '<i class="fas fa-exclamation-triangle text-red-500"></i>';
-                throw e; // Re-throw error to be caught by the calling function
+                throw e; 
             } finally {
                 tempVideoStream?.getTracks().forEach(track => track.stop());
                 captureVideoEl.srcObject = null;
                 setTimeout(() => {
                     countdownModal.classList.add('hidden');
-                }, 2500); // Give user time to see error message
+                }, 2500);
             }
         }
         
@@ -347,7 +432,7 @@
             const q = query(photosRef, where("timestamp", ">=", oneHourAgo), orderBy("timestamp", "desc"));
 
             photosUnsubscribe = onSnapshot(q, (snapshot) => {
-                photosContainerEl.innerHTML = ''; // Clear existing photos
+                photosContainerEl.innerHTML = '';
                 if(snapshot.empty) {
                     noPhotosMsg.classList.remove('hidden');
                 } else {
@@ -411,7 +496,6 @@
                     });
                 }
                 
-                // --- WebRTC Connection Management ---
                 const participantIds = new Set(currentParticipants.keys());
                 for (const participantId of participantIds) {
                     if (myId < participantId) createPeerConnection(participantId, true);
@@ -429,21 +513,17 @@
                 await deleteDoc(selfRef).catch(e => {});
             }
             Object.keys(peerConnections).forEach(cleanupPeerConnection);
-            // Stop all streams
             micStream?.getTracks().forEach(track => track.stop());
             screenStream?.getTracks().forEach(track => track.stop());
-            // Unsubscribe from all listeners
             participantsUnsubscribe?.();
             signalsUnsubscribe?.();
             requestsUnsubscribe?.();
             photosUnsubscribe?.();
-            // Clear state
             peerConnections = {};
             micStream = null;
             screenStream = null;
         }
 
-        // --- Core UI, WebRTC, and other functions ---
         function resetUI() {
             micBtn.disabled = true;
             shareScreenBtn.disabled = true;
@@ -456,8 +536,7 @@
         }
         
         function toggleMic(shouldToggle = true) {
-            if (!micStream) return;
-            if (isScreenSharing) return; 
+            if (!micStream || isUrlPlaying) return;
             if(shouldToggle) isMuted = !isMuted; else isMuted = false;
             micStream.getAudioTracks().forEach(track => { track.enabled = !isMuted; });
             micBtn.disabled = false;
@@ -471,18 +550,15 @@
         }
 
         async function toggleScreenShare() {
+            if(isUrlPlaying) return;
             if (isScreenSharing) stopScreenShare(); else startScreenShare();
         }
 
         async function startScreenShare() {
             try {
                 screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-                const screenAudioTrack = screenStream.getAudioTracks()[0];
-                if (!screenAudioTrack) {
-                    console.warn("Audio not shared with screen."); 
-                }
                 isScreenSharing = true;
-                replaceTrackInPeers(screenAudioTrack || micStream.getAudioTracks()[0]);
+                replaceTrackInPeers(screenStream.getAudioTracks()[0] || micStream.getAudioTracks()[0]);
                 micBtn.disabled = true;
                 shareIcon.className = 'fas fa-stop-circle text-2xl text-red-400';
                 shareScreenBtn.querySelector('span').textContent = 'Stop';
@@ -504,7 +580,9 @@
             for (const partnerId in peerConnections) {
                 const pc = peerConnections[partnerId];
                 const sender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
-                if (sender) sender.replaceTrack(newTrack);
+                if (sender) {
+                    sender.replaceTrack(newTrack).catch(e => console.error("Replace track failed:", e));
+                }
             }
         }
         
@@ -512,7 +590,11 @@
             if (peerConnections[partnerId]) return;
             const pc = new RTCPeerConnection(servers);
             peerConnections[partnerId] = pc;
-            micStream.getTracks().forEach(track => pc.addTrack(track, micStream));
+            
+            // Add the current primary audio track to the connection
+            const initialTrack = micStream.getAudioTracks()[0];
+            if(initialTrack) pc.addTrack(initialTrack, micStream);
+
             pc.ontrack = event => {
                 let audioEl = document.getElementById(`audio_${partnerId}`);
                 if (!audioEl) {
