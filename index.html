@@ -8,47 +8,55 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        body { font-family: 'Inter', sans-serif; }
-        .status-light {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            display: inline-block;
-            transition: background-color 0.5s ease;
+        body { 
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a; /* slate-900 */
         }
-        .status-disconnected { background-color: #f59e0b; } /* amber-500 */
-        .status-connected { 
-            background-color: #22c55e; /* green-500 */
-            animation: pulse-green 2s infinite;
+        .glass-card {
+            background: rgba(30, 41, 59, 0.5); /* slate-800 with 50% opacity */
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(51, 65, 85, 0.5); /* slate-700 with 50% opacity */
+            animation: fadeIn 0.8s ease-in-out;
         }
-        @keyframes pulse-green {
-            0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
-            50% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .mic-button.active {
+            box-shadow: 0 0 25px rgba(34, 197, 94, 0.6); /* green-500 glow */
+            animation: pulse-glow 2s infinite;
+        }
+        @keyframes pulse-glow {
+            0% { box-shadow: 0 0 25px rgba(34, 197, 94, 0.6); }
+            50% { box-shadow: 0 0 35px rgba(34, 197, 94, 0.9); }
+            100% { box-shadow: 0 0 25px rgba(34, 197, 94, 0.6); }
         }
     </style>
 </head>
-<body class="bg-gray-900 text-white flex items-center justify-center min-h-screen">
+<body class="bg-gradient-to-br from-slate-900 to-gray-900 text-white flex items-center justify-center min-h-screen p-4">
 
-    <div class="w-full max-w-md mx-auto p-8 bg-gray-800 rounded-2xl shadow-2xl border border-gray-700 text-center">
+    <div class="w-full max-w-sm mx-auto p-8 glass-card rounded-2xl shadow-2xl text-center">
         
-        <h1 class="text-3xl font-bold text-white mb-3">Public Radio: 91.5 FM</h1>
-        <p class="text-gray-400 mb-8">Aap live hain. Channel par sabhi log aapko sun sakte hain.</p>
+        <h1 class="text-3xl font-bold text-white mb-2">Public Radio</h1>
+        <p class="text-lg text-gray-400 mb-8">91.5 FM</p>
+
+        <!-- Mic Mute/Unmute Button -->
+        <div class="my-8">
+            <button id="micBtn" class="w-24 h-24 flex items-center justify-center bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-full transition-all duration-300 mx-auto shadow-lg" disabled>
+                <i id="micIcon" class="fas fa-microphone-slash text-3xl"></i>
+            </button>
+        </div>
 
         <!-- Status Display -->
-        <div class="bg-gray-700 rounded-lg p-4 flex items-center justify-center space-x-3">
-            <div id="statusLight" class="status-light status-disconnected"></div>
+        <div class="bg-slate-900/50 rounded-lg p-3 flex items-center justify-center space-x-3">
             <span id="status" class="font-medium text-gray-300">Connecting to channel...</span>
         </div>
         
-        <div id="user-count" class="mt-4 text-sm text-gray-400">
+        <div id="user-count" class="mt-4 text-sm text-gray-400 transition-opacity duration-500 opacity-0">
+            <i class="fas fa-users mr-1"></i>
             <span id="connectedUsers">0</span> users connected
         </div>
-
-        <!-- Mic Mute/Unmute Button -->
-        <button id="micBtn" class="mt-6 w-full flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300" disabled>
-            <i id="micIcon" class="fas fa-microphone-slash mr-2"></i>
-            <span id="micText">Unmute</span>
-        </button>
 
         <!-- Audio elements dynamically added here -->
         <div id="audio-container" class="hidden"></div>
@@ -68,12 +76,11 @@
         // --- DOM Elements ---
         const localAudio = document.getElementById('localAudio');
         const statusEl = document.getElementById('status');
-        const statusLight = document.getElementById('statusLight');
         const audioContainer = document.getElementById('audio-container');
         const connectedUsersEl = document.getElementById('connectedUsers');
+        const userCountEl = document.getElementById('user-count');
         const micBtn = document.getElementById('micBtn');
         const micIcon = document.getElementById('micIcon');
-        const micText = document.getElementById('micText');
         
         // --- App State ---
         let db, auth;
@@ -103,10 +110,9 @@
                 db = getFirestore(app);
                 auth = getAuth(app);
                 
-                // Pehle microphone access lein
                 localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 localAudio.srcObject = localStream;
-                toggleMic(false); // Start with mic unmuted
+                toggleMic(false); 
                 
                 onAuthStateChanged(auth, user => {
                     if (user && !myId) { 
@@ -119,7 +125,7 @@
 
             } catch (e) {
                 console.error("Initialization/Mic Error:", e);
-                updateStatus("Mic/Connection Error", 'disconnected');
+                updateStatus("Mic/Connection Error");
             }
             micBtn.addEventListener('click', () => toggleMic());
         }
@@ -136,15 +142,14 @@
             
             micBtn.disabled = false;
             if (isMuted) {
-                micIcon.className = 'fas fa-microphone-slash mr-2';
-                micText.textContent = 'Unmute';
-                micBtn.classList.replace('bg-blue-600', 'bg-red-600');
-                micBtn.classList.replace('hover:bg-blue-700', 'hover:bg-red-700');
+                micIcon.className = 'fas fa-microphone-slash text-3xl text-red-400';
+                micBtn.classList.remove('active', 'bg-green-500/20');
+                micBtn.classList.add('bg-slate-700');
+
             } else {
-                micIcon.className = 'fas fa-microphone mr-2';
-                micText.textContent = 'Mute';
-                micBtn.classList.replace('bg-red-600', 'bg-blue-600');
-                micBtn.classList.replace('hover:bg-red-700', 'hover:bg-blue-700');
+                micIcon.className = 'fas fa-microphone text-3xl text-green-400';
+                micBtn.classList.add('active', 'bg-green-500/20');
+                micBtn.classList.remove('bg-slate-700');
             }
         }
 
@@ -153,7 +158,8 @@
             const participantsRef = collection(channelRef, 'participants');
             
             await setDoc(doc(participantsRef, myId), { joinedAt: Date.now() });
-            updateStatus("Connected", 'connected');
+            updateStatus("Connected to Channel");
+            userCountEl.classList.remove('opacity-0');
             
             if(participantsUnsubscribe) participantsUnsubscribe();
             participantsUnsubscribe = onSnapshot(participantsRef, (snapshot) => {
@@ -167,21 +173,17 @@
                 connectedUsersEl.textContent = currentParticipants.size + 1;
 
                 for (const participantId of currentParticipants) {
-                    // ** FIX: Prevent call glare. The user with the lexicographically smaller ID calls.
                     if (myId < participantId) {
-                        createPeerConnection(participantId, true); // I am the caller
+                        if (!peerConnections[participantId]) {
+                             createPeerConnection(participantId, true); // I am the caller
+                        }
                     }
                 }
                 
                 const existingPeers = new Set(Object.keys(peerConnections));
                 for (const participantId of existingPeers) {
                     if (!currentParticipants.has(participantId)) {
-                        if (peerConnections[participantId]) {
-                            peerConnections[participantId].close();
-                            delete peerConnections[participantId];
-                        }
-                        const audioEl = document.getElementById(`audio_${participantId}`);
-                        if (audioEl) audioEl.remove();
+                        cleanupPeerConnection(participantId);
                     }
                 }
             });
@@ -190,11 +192,9 @@
         }
 
         function createPeerConnection(partnerId, isCaller) {
-            // ** FIX: Check if a connection already exists or is being established.
             if (peerConnections[partnerId]) return;
 
             const pc = new RTCPeerConnection(servers);
-            // ** FIX: Add the connection to the map immediately to prevent race conditions.
             peerConnections[partnerId] = pc;
             
             localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
@@ -213,11 +213,11 @@
             pc.onicecandidate = e => e.candidate && sendSignal({ candidate: e.candidate.toJSON() }, partnerId);
 
             pc.onconnectionstatechange = () => {
+                // ** AUTO-RECONNECT LOGIC **
+                // Agar connection fail hota hai, to use clean up karein.
+                // onSnapshot listener apne aap dobara connect karne ki koshish karega.
                 if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
-                    if (peerConnections[partnerId]) {
-                        peerConnections[partnerId].close();
-                        delete peerConnections[partnerId];
-                    }
+                    cleanupPeerConnection(partnerId);
                 }
             };
             
@@ -227,6 +227,15 @@
                     sendSignal({ offer }, partnerId);
                 });
             }
+        }
+
+        function cleanupPeerConnection(partnerId) {
+            if (peerConnections[partnerId]) {
+                peerConnections[partnerId].close();
+                delete peerConnections[partnerId];
+            }
+            const audioEl = document.getElementById(`audio_${partnerId}`);
+            if (audioEl) audioEl.remove();
         }
 
         async function sendSignal(data, recipientId) {
@@ -245,7 +254,6 @@
                         const partnerId = signal.from;
 
                         if (signal.offer) {
-                             // The smaller ID never answers, it only calls. This prevents glare.
                             if (myId > partnerId) {
                                 createPeerConnection(partnerId, false); 
                                 const pc = peerConnections[partnerId];
@@ -281,17 +289,13 @@
                 const selfRef = doc(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'participants', myId);
                 await deleteDoc(selfRef);
             }
-            for (const partnerId in peerConnections) {
-                peerConnections[partnerId].close();
-            }
-            peerConnections = {};
+            Object.keys(peerConnections).forEach(cleanupPeerConnection);
             if(localStream) localStream.getTracks().forEach(track => track.stop());
             if(participantsUnsubscribe) participantsUnsubscribe();
         }
 
-        function updateStatus(message, state) {
+        function updateStatus(message) {
             statusEl.textContent = message;
-            statusLight.className = 'status-light status-' + state;
         }
         
         window.addEventListener('beforeunload', leaveChannel);
