@@ -68,10 +68,10 @@
         import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, addDoc } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
 
         // --- ZAROORI CONFIGURATION ---
-        // Yahan aap aur aapke friend ko apne unique User IDs daalne hain.
-        // ID paane ke liye, page ko ek baar chalaayein aur browser console mein dekhein.
-        const USER_A_ID = 'USER_A_ID_YAHAN_DAALEIN';
-        const USER_B_ID = 'USER_B_ID_YAHAN_DAALEIN';
+        // Default User IDs pehle se set hain.
+        // Aap aur aapke friend, dono ko same file use karni hai.
+        const USER_A_ID = 'private-voice-user-alpha-7712';
+        const USER_B_ID = 'private-voice-user-beta-8823';
         
         // --- DOM Elements ---
         const userIdEl = document.getElementById('userId');
@@ -113,23 +113,23 @@
                 onAuthStateChanged(auth, user => {
                     if (user && !myId) { 
                         myId = user.uid;
-                        userIdEl.textContent = myId;
-                        console.log(`My User ID is: ${myId}`);
                         
                         // User role set karein
-                        if (myId === USER_A_ID) {
-                            partnerId = USER_B_ID;
-                            isCaller = true;
-                        } else if (myId === USER_B_ID) {
-                            partnerId = USER_A_ID;
-                            isCaller = false;
-                        } else {
-                            updateStatus("Unauthorized", 'disconnected');
-                            console.error("This ID is not authorized for this private channel.");
-                            return;
+                        // Yeh anumaan lagata hai ki pehla user A hai aur dusra B.
+                        // Yeh ek saral tarika hai, asli production app mein aapko alag tarika use karna chahiye.
+                        if (!window.roleAssigned) {
+                            const docRef = doc(db, 'private_channels_status', 'role_assigner');
+                            getDoc(docRef).then(docSnap => {
+                                if (!docSnap.exists() || docSnap.data().currentUser === USER_B_ID) {
+                                    setDoc(docRef, { currentUser: USER_A_ID });
+                                    assignRole(USER_A_ID);
+                                } else {
+                                    setDoc(docRef, { currentUser: USER_B_ID });
+                                    assignRole(USER_B_ID);
+                                }
+                                window.roleAssigned = true;
+                            });
                         }
-                        
-                        startConnectionProcess();
                     }
                 });
                 
@@ -140,18 +140,28 @@
                 updateStatus("Connection Error", 'disconnected');
             }
         }
+
+        function assignRole(assignedRole) {
+            userIdEl.textContent = assignedRole;
+
+            if (assignedRole === USER_A_ID) {
+                partnerId = USER_B_ID;
+                isCaller = true;
+            } else {
+                partnerId = USER_A_ID;
+                isCaller = false;
+            }
+            startConnectionProcess();
+        }
         
         function startConnectionProcess() {
-            // Caller (User A) hamesha call shuru karega
             if (isCaller) {
-                // Lagatar connect karne ki koshish karein
                 reconnectInterval = setInterval(() => {
                     if (!peerConnection) {
                          createOrJoinRoom();
                     }
-                }, 5000); // Har 5 second mein
+                }, 5000); 
             }
-            // Receiver (User B) call ka intezar karega
             listenForRoomChanges();
         }
 
@@ -166,8 +176,7 @@
         }
         
         function listenForRoomChanges() {
-            // Hamesha apne partner ke naam wale room ko sunein
-            const roomRef = doc(db, 'private_channels', isCaller ? partnerId : myId);
+            const roomRef = doc(db, 'private_channels', isCaller ? partnerId : USER_A_ID);
             if(roomUnsubscribe) roomUnsubscribe();
 
             roomUnsubscribe = onSnapshot(roomRef, async (snapshot) => {
@@ -236,8 +245,7 @@
                 }
             };
             
-            // Signaling logic
-            const signalingDocRef = doc(db, 'private_channels', isCaller ? partnerId : myId);
+            const signalingDocRef = doc(db, 'private_channels', isCaller ? partnerId : USER_A_ID);
             const myCandidates = collection(signalingDocRef, isCaller ? 'callerCandidates' : 'answererCandidates');
             const partnerCandidates = collection(signalingDocRef, isCaller ? 'answererCandidates' : 'callerCandidates');
             
@@ -245,7 +253,7 @@
             
             onSnapshot(partnerCandidates, snapshot => {
                 snapshot.docChanges().forEach(change => {
-                    if(change.type === 'added' && pc.signalingState !== "closed") {
+                    if(change.type === 'added' && pc && pc.signalingState !== "closed") {
                         pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
                     }
                 });
@@ -267,7 +275,7 @@
             if (isCaller) {
                 const roomRef = doc(db, 'private_channels', partnerId);
                 await deleteDoc(roomRef).catch(() => {});
-                startConnectionProcess(); // Caller tries to reconnect
+                startConnectionProcess(); 
             }
         }
 
