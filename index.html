@@ -152,11 +152,9 @@
             const channelRef = doc(db, 'radio_channels', DEFAULT_CHANNEL_ID);
             const participantsRef = collection(channelRef, 'participants');
             
-            // Channel mein apni entry karein
             await setDoc(doc(participantsRef, myId), { joinedAt: Date.now() });
             updateStatus("Connected", 'connected');
             
-            // Dusre participants ke liye listen karein
             if(participantsUnsubscribe) participantsUnsubscribe();
             participantsUnsubscribe = onSnapshot(participantsRef, (snapshot) => {
                 const currentParticipants = new Set();
@@ -168,34 +166,35 @@
                 
                 connectedUsersEl.textContent = currentParticipants.size + 1;
 
-                // Naye participant se connect karein
                 for (const participantId of currentParticipants) {
                     // ** FIX: Prevent call glare. The user with the lexicographically smaller ID calls.
                     if (myId < participantId) {
-                        if (!peerConnections[participantId]) {
-                            createPeerConnection(participantId, true); // I am the caller
-                        }
+                        createPeerConnection(participantId, true); // I am the caller
                     }
                 }
                 
-                // Disconnected participant ko remove karein
                 const existingPeers = new Set(Object.keys(peerConnections));
                 for (const participantId of existingPeers) {
                     if (!currentParticipants.has(participantId)) {
-                        peerConnections[participantId].close();
-                        delete peerConnections[participantId];
+                        if (peerConnections[participantId]) {
+                            peerConnections[participantId].close();
+                            delete peerConnections[participantId];
+                        }
                         const audioEl = document.getElementById(`audio_${participantId}`);
                         if (audioEl) audioEl.remove();
                     }
                 }
             });
 
-            // Incoming calls ke liye listen karein
             listenForOffers();
         }
 
         function createPeerConnection(partnerId, isCaller) {
+            // ** FIX: Check if a connection already exists or is being established.
+            if (peerConnections[partnerId]) return;
+
             const pc = new RTCPeerConnection(servers);
+            // ** FIX: Add the connection to the map immediately to prevent race conditions.
             peerConnections[partnerId] = pc;
             
             localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
@@ -246,24 +245,21 @@
                         const partnerId = signal.from;
 
                         if (signal.offer) {
-                            if (!peerConnections[partnerId]) {
-                                // Only create a connection if I'm the designated answerer
-                                if (myId > partnerId) {
-                                    createPeerConnection(partnerId, false); 
+                             // The smaller ID never answers, it only calls. This prevents glare.
+                            if (myId > partnerId) {
+                                createPeerConnection(partnerId, false); 
+                                const pc = peerConnections[partnerId];
+                                if (pc) {
+                                    await pc.setRemoteDescription(new RTCSessionDescription(signal.offer));
+                                    const answer = await pc.createAnswer();
+                                    await pc.setLocalDescription(answer);
+                                    sendSignal({ answer }, partnerId);
                                 }
-                            }
-                            const pc = peerConnections[partnerId];
-                            if (pc && pc.signalingState === 'stable') {
-                                await pc.setRemoteDescription(new RTCSessionDescription(signal.offer));
-                                const answer = await pc.createAnswer();
-                                await pc.setLocalDescription(answer);
-                                sendSignal({ answer }, partnerId);
                             }
                         } 
                         else if (signal.answer) {
                             const pc = peerConnections[partnerId];
-                            // ** FIX: Only set remote answer if we are expecting one.
-                            if(pc && pc.signalingState === 'have-local-offer') {
+                            if(pc && pc.signalingState !== 'stable') {
                                 await pc.setRemoteDescription(new RTCSessionDescription(signal.answer));
                             }
                         } 
@@ -273,7 +269,7 @@
                                 await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
                             }
                         }
-                        // Signal process hone ke baad use delete kar dein
+                        
                         await deleteDoc(change.doc.ref);
                     }
                 });
