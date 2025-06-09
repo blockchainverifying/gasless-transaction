@@ -3,10 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voice Channel</title>
+    <title>Private Voice Link</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -41,114 +40,100 @@
 
     <div class="w-full max-w-sm mx-auto p-8 bg-gray-800 rounded-2xl shadow-2xl border border-gray-700 text-center">
         
-        <h1 class="text-3xl font-bold text-white mb-3">Voice Channel</h1>
-        
-        <!-- Room Management Section -->
-        <div class="my-6">
-            <label for="roomIdInput" class="block text-sm font-medium text-gray-400 mb-2">Room ID Daalein</label>
-            <div class="flex space-x-2">
-                <input type="text" id="roomIdInput" placeholder="Jaise 'friends-room'" class="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">
-                <button id="joinRoomBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
-                    Join
-                </button>
-            </div>
-        </div>
+        <h1 class="text-3xl font-bold text-white mb-3">Private Voice Link</h1>
+        <p class="text-gray-400 mb-8">Direct communication channel.</p>
 
         <!-- Status Display -->
-        <div class="bg-gray-700 rounded-lg p-4">
-            <div class="flex items-center justify-center space-x-3 mb-2">
-                <div id="statusLight" class="status-light disconnected"></div>
-                <span id="status" class="font-medium text-gray-300">Initializing...</span>
-            </div>
-            <div class="text-xs text-gray-500">
-                Current Room: <span id="currentRoomId" class="font-mono">N/A</span>
-            </div>
+        <div class="bg-gray-700 rounded-lg p-4 flex items-center justify-center space-x-3">
+            <div id="statusLight" class="status-light disconnected"></div>
+            <span id="status" class="font-medium text-gray-300">Initializing...</span>
         </div>
         
-        <div class="mt-4 text-xs text-gray-500">
-            Aapki User ID: <span id="userId" class="font-mono">Loading...</span>
+        <div class="mt-6 text-xs text-gray-500">
+            My User ID: <span id="userId" class="font-mono">Loading...</span>
         </div>
 
-
+        <!-- Hidden Audio Players -->
         <div class="hidden">
             <audio id="localAudio" muted autoplay playsinline></audio>
             <audio id="remoteAudio" autoplay playsinline></audio>
         </div>
         
-        <div id="alert-box" class="fixed top-5 right-5 bg-red-600 text-white px-6 py-3 rounded-lg shadow-lg text-sm opacity-0 transition-opacity duration-300 pointer-events-none"></div>
     </div>
 
     <script type="module">
-        // Firebase modules import karein
+        // Firebase modules import
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, addDoc } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
 
-        // --- Channel Configuration ---
-        const DEFAULT_PUBLIC_CHANNEL_ID = 'public-room';
-
+        // --- ZAROORI CONFIGURATION ---
+        // Yahan aap aur aapke friend ko apne unique User IDs daalne hain.
+        // ID paane ke liye, page ko ek baar chalaayein aur browser console mein dekhein.
+        const USER_A_ID = 'USER_A_ID_YAHAN_DAALEIN';
+        const USER_B_ID = 'USER_B_ID_YAHAN_DAALEIN';
+        
         // --- DOM Elements ---
         const userIdEl = document.getElementById('userId');
         const localAudio = document.getElementById('localAudio');
         const remoteAudio = document.getElementById('remoteAudio');
         const statusEl = document.getElementById('status');
         const statusLight = document.getElementById('statusLight');
-        const alertBox = document.getElementById('alert-box');
-        const roomIdInput = document.getElementById('roomIdInput');
-        const joinRoomBtn = document.getElementById('joinRoomBtn');
-        const currentRoomIdEl = document.getElementById('currentRoomId');
         
         // --- App State ---
         let db, auth;
         let peerConnection;
         let localStream;
-        let remoteStream;
-        let currentUserId = null;
-        let currentRoomId = null;
+        let myId = null;
+        let partnerId = null;
+        let isCaller = false;
         let roomUnsubscribe = null;
-        let isRoomCreator = false;
+        let reconnectInterval = null;
 
-        // Aapke web app ka Firebase configuration
+        // Firebase configuration
         const firebaseConfig = {
             apiKey: "AIzaSyCwzPmWpDmx4SEPeZkvzcYLnOd4k6QLe2U",
             authDomain: "my-voice-app-4eca5.firebaseapp.com",
             projectId: "my-voice-app-4eca5",
-            storageBucket: "my-voice-app-4eca5.firebasestorage.app",
+            storageBucket: "my-voice-app-4eca5.appspot.com",
             messagingSenderId: "972654270500",
             appId: "1:972654270500:web:c29a42a09972f5a4ce20b1",
             measurementId: "G-N31J1LYY6G"
         };
         
-        // --- WebRTC Configuration ---
-        const servers = {
-            iceServers: [
-                { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
-            ],
-            iceCandidatePoolSize: 10,
-        };
+        const servers = { iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }] };
 
         // --- Main Initialization ---
         async function initialize() {
-            updateStatus("Initializing...", 'connecting');
             try {
                 const app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
                 
                 onAuthStateChanged(auth, user => {
-                    if (user && !currentUserId) { 
-                        currentUserId = user.uid;
-                        userIdEl.textContent = currentUserId.substring(0, 10) + '...';
+                    if (user && !myId) { 
+                        myId = user.uid;
+                        userIdEl.textContent = myId;
+                        console.log(`My User ID is: ${myId}`);
                         
-                        // Last room ID ko localStorage se load karein
-                        const lastRoomId = localStorage.getItem('lastRoomId') || DEFAULT_PUBLIC_CHANNEL_ID;
-                        roomIdInput.value = lastRoomId;
-                        joinOrCreateRoom(lastRoomId);
+                        // User role set karein
+                        if (myId === USER_A_ID) {
+                            partnerId = USER_B_ID;
+                            isCaller = true;
+                        } else if (myId === USER_B_ID) {
+                            partnerId = USER_A_ID;
+                            isCaller = false;
+                        } else {
+                            updateStatus("Unauthorized", 'disconnected');
+                            console.error("This ID is not authorized for this private channel.");
+                            return;
+                        }
+                        
+                        startConnectionProcess();
                     }
                 });
                 
                 await signInAnonymously(auth);
-                joinRoomBtn.addEventListener('click', handleJoinRoomClick);
 
             } catch (e) {
                 console.error("Initialization Error:", e);
@@ -156,173 +141,134 @@
             }
         }
         
-        // --- Room Management ---
-        async function handleJoinRoomClick() {
-            const newRoomId = roomIdInput.value.trim();
-            if (!newRoomId) {
-                showAlert("Please enter a Room ID.");
-                return;
+        function startConnectionProcess() {
+            // Caller (User A) hamesha call shuru karega
+            if (isCaller) {
+                // Lagatar connect karne ki koshish karein
+                reconnectInterval = setInterval(() => {
+                    if (!peerConnection) {
+                         createOrJoinRoom();
+                    }
+                }, 5000); // Har 5 second mein
             }
-            if (newRoomId === currentRoomId && peerConnection) {
-                showAlert("Aap pehle se is room mein hain.");
-                return;
-            }
-            
-            await resetConnection();
-            localStorage.setItem('lastRoomId', newRoomId);
-            joinOrCreateRoom(newRoomId);
+            // Receiver (User B) call ka intezar karega
+            listenForRoomChanges();
         }
 
-        async function joinOrCreateRoom(roomId) {
-            if (peerConnection) await resetConnection();
-            
-            currentRoomId = roomId;
-            currentRoomIdEl.textContent = roomId;
-            console.log(`Attaching snapshot listener for room: ${roomId}`);
-            const roomRef = doc(db, `webrtc-channels`, roomId);
-            
-            if (roomUnsubscribe) roomUnsubscribe();
+        async function createOrJoinRoom() {
+            if (peerConnection) return;
+            const roomRef = doc(db, 'private_channels', partnerId);
+            const roomSnapshot = await getDoc(roomRef);
+
+            if (!roomSnapshot.exists()) {
+                await createRoom(roomRef);
+            }
+        }
+        
+        function listenForRoomChanges() {
+            // Hamesha apne partner ke naam wale room ko sunein
+            const roomRef = doc(db, 'private_channels', isCaller ? partnerId : myId);
+            if(roomUnsubscribe) roomUnsubscribe();
+
             roomUnsubscribe = onSnapshot(roomRef, async (snapshot) => {
-                const roomData = snapshot.data();
-                console.log(`Snapshot for room ${roomId}. Exists: ${snapshot.exists()}`);
+                const data = snapshot.data();
 
-                if (peerConnection) {
-                    // Agar connection pehle se ban raha hai, to snapshot ko ignore karein
-                    return;
+                if (!snapshot.exists() && peerConnection) {
+                    await resetConnection("Partner disconnected");
                 }
+                
+                if (peerConnection) return;
 
-                if (!snapshot.exists()) {
-                    // Room khaali hai, naya banayein
-                    await createRoom(roomRef);
-                } else {
-                    // Room pehle se hai
-                    if (roomData.answer) {
-                        // Room full ya stale hai. Ise delete karein.
-                        console.log("Stale/full room found. Deleting for a fresh start.");
-                        await deleteDoc(roomRef);
-                        // Listener apne aap dobara fire hoga aur naya room banayega.
-                    } else if (roomData.offer) {
-                        // Room mein offer hai, join karein.
-                        if (roomData.creatorId !== currentUserId) {
-                           await answerCall(roomRef, roomData);
-                        } else {
-                            // Main hi is room ka creator hu, partner ka intezar karein.
-                            updateStatus("Waiting for partner...", 'connecting');
-                        }
-                    }
+                if (snapshot.exists() && data.offer && !isCaller) {
+                    await answerCall(roomRef, data);
                 }
-            }, (error) => {
-                console.error("Snapshot listener error:", error);
-                updateStatus("Firestore Error", 'disconnected');
             });
         }
 
-        // --- WebRTC Core Functions ---
+
         async function createRoom(roomRef) {
-            if (peerConnection) return;
-            isRoomCreator = true;
-            // FIXED: Better status message for single user
-            updateStatus("Waiting for partner...", 'connecting');
-
+            updateStatus("Calling partner...", 'connecting');
+            const pc = initializePeerConnection();
+            
             try {
-                localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
                 localAudio.srcObject = localStream;
-            } catch (e) {
-                updateStatus("Microphone access needed", 'disconnected');
-                isRoomCreator = false;
-                return;
-            }
-
-            const pc = initializePeerConnection(roomRef);
-            localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+            } catch (e) { return updateStatus("Mic Error", 'disconnected'); }
+            
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
             
-            await setDoc(roomRef, { offer: { sdp: offer.sdp, type: offer.type }, creatorId: currentUserId, createdAt: serverTimestamp() });
-            peerConnection = pc; 
+            await setDoc(roomRef, { offer: { sdp: offer.sdp, type: offer.type } });
+            peerConnection = pc;
         }
-        
+
         async function answerCall(roomRef, roomData) {
-            if (peerConnection) return;
-            isRoomCreator = false;
-            updateStatus("Connecting to partner...", 'connecting');
-
+            updateStatus("Answering call...", 'connecting');
+            const pc = initializePeerConnection();
+            
             try {
-                localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
                 localAudio.srcObject = localStream;
-            } catch(e) {
-                updateStatus("Microphone access needed", 'disconnected');
-                return;
-            }
-
-            const pc = initializePeerConnection(roomRef);
-            localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+            } catch (e) { return updateStatus("Mic Error", 'disconnected'); }
 
             await pc.setRemoteDescription(new RTCSessionDescription(roomData.offer));
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
 
-            await updateDoc(roomRef, { answer: { type: answer.type, sdp: answer.sdp }, joinerId: currentUserId });
+            await updateDoc(roomRef, { answer: { type: answer.type, sdp: answer.sdp } });
             peerConnection = pc;
         }
 
-        function initializePeerConnection(roomRef) {
+        function initializePeerConnection() {
             const pc = new RTCPeerConnection(servers);
 
-            pc.ontrack = event => {
-                remoteAudio.srcObject = event.streams[0];
-            };
+            pc.ontrack = event => { remoteAudio.srcObject = event.streams[0]; };
 
             pc.onconnectionstatechange = () => {
                 if (pc.connectionState === 'connected') {
+                    if(reconnectInterval) clearInterval(reconnectInterval);
+                    reconnectInterval = null;
                     updateStatus('Connected', 'connected');
-                    if (roomUnsubscribe) {
-                        roomUnsubscribe();
-                        roomUnsubscribe = null;
-                    }
                 } else if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
-                    resetConnection();
+                    resetConnection("Connection lost");
                 }
             };
             
-            const creatorCandidates = collection(roomRef, 'creatorCandidates');
-            const joinerCandidates = collection(roomRef, 'joinerCandidates');
-
-            pc.onicecandidate = event => {
-                if(event.candidate) {
-                    addDoc(isRoomCreator ? creatorCandidates : joinerCandidates, event.candidate.toJSON());
-                }
-            };
-
-            onSnapshot(isRoomCreator ? joinerCandidates : creatorCandidates, (snapshot) => {
-                snapshot.docChanges().forEach((change) => {
-                    if (change.type === 'added' && pc && pc.signalingState !== 'closed') {
-                       pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
+            // Signaling logic
+            const signalingDocRef = doc(db, 'private_channels', isCaller ? partnerId : myId);
+            const myCandidates = collection(signalingDocRef, isCaller ? 'callerCandidates' : 'answererCandidates');
+            const partnerCandidates = collection(signalingDocRef, isCaller ? 'answererCandidates' : 'callerCandidates');
+            
+            pc.onicecandidate = e => e.candidate && addDoc(myCandidates, e.candidate.toJSON());
+            
+            onSnapshot(partnerCandidates, snapshot => {
+                snapshot.docChanges().forEach(change => {
+                    if(change.type === 'added' && pc.signalingState !== "closed") {
+                        pc.addIceCandidate(new RTCIceCandidate(change.doc.data()));
                     }
                 });
             });
-            return pc; 
+            
+            return pc;
         }
         
-        async function resetConnection() {
-            updateStatus('Disconnected', 'disconnected');
-
-            if (roomUnsubscribe) {
-                roomUnsubscribe();
-                roomUnsubscribe = null;
-            }
+        async function resetConnection(reason) {
             if (peerConnection) {
                 peerConnection.close();
                 peerConnection = null;
             }
-            if (localStream) {
+            if(localStream) {
                 localStream.getTracks().forEach(track => track.stop());
                 localStream = null;
             }
-            
-            localAudio.srcObject = null;
-            remoteAudio.srcObject = null;
-            isRoomCreator = false;
+            updateStatus(reason || 'Disconnected', 'disconnected');
+            if (isCaller) {
+                const roomRef = doc(db, 'private_channels', partnerId);
+                await deleteDoc(roomRef).catch(() => {});
+                startConnectionProcess(); // Caller tries to reconnect
+            }
         }
 
         function updateStatus(message, state) {
@@ -330,17 +276,9 @@
             statusLight.className = 'status-light ' + state;
         }
         
-        function showAlert(message) {
-            alertBox.textContent = message;
-            alertBox.classList.remove('opacity-0');
-            setTimeout(() => {
-                alertBox.classList.add('opacity-0');
-            }, 3000);
-        }
-
         window.addEventListener('beforeunload', () => {
-             if (isRoomCreator && currentRoomId) {
-                const roomRef = doc(db, `webrtc-channels`, currentRoomId);
+             if (isCaller) {
+                const roomRef = doc(db, 'private_channels', partnerId);
                 deleteDoc(roomRef); 
              }
         });
