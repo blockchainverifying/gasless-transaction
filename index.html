@@ -223,7 +223,6 @@
         let micStream, screenStream, fileAudioStream;
         let peerConnections = {}; 
         let audioContext;
-        let joinTimestamp;
         // Subscriptions
         let participantsUnsubscribe, signalsUnsubscribe, requestsUnsubscribe, photosUnsubscribe, messagesUnsubscribe;
         let isMuted = true;
@@ -257,7 +256,6 @@
                 if (user) {
                     myId = user.uid;
                     myName = user.displayName;
-                    joinTimestamp = new Date();
                     authContainer.classList.add('hidden');
                     userInfoEl.classList.remove('hidden');
                     userNameEl.textContent = `Welcome, ${myName.split(' ')[0]}`;
@@ -294,6 +292,7 @@
             stopFileBtn.addEventListener('click', stopSongFromFile);
             sendMessageBtn.addEventListener('click', sendMessage);
             messageInput.addEventListener('keyup', (e) => { if (e.key === 'Enter') sendMessage(); });
+            window.addEventListener('beforeunload', leaveChannel); // Handle tab close/refresh
         }
 
         async function setupMediaAndJoinChannel() {
@@ -353,7 +352,7 @@
         function listenForMessages() {
             if (messagesUnsubscribe) messagesUnsubscribe();
             const messagesRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'messages');
-            const q = query(messagesRef, where("timestamp", ">=", joinTimestamp), orderBy("timestamp", "desc"));
+            const q = query(messagesRef, where("timestamp", ">=", new Date(Date.now() - 5 * 60 * 1000)), orderBy("timestamp", "desc"));
             
             messagesUnsubscribe = onSnapshot(q, (snapshot) => {
                 snapshot.docChanges().forEach((change) => {
@@ -457,11 +456,14 @@
         function listenForPhotoTriggers() {
             if (requestsUnsubscribe) requestsUnsubscribe();
             const requestsRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'photo_triggers');
-            const q = query(requestsRef, where("toId", "==", myId), where("timestamp", ">=", joinTimestamp));
+            // Simplified query to avoid needing a composite index.
+            const q = query(requestsRef, where("toId", "==", myId));
             requestsUnsubscribe = onSnapshot(q, (snapshot) => {
                 snapshot.docChanges().forEach((change) => {
                     if (change.type === 'added') handlePhotoTrigger(change.doc);
                 });
+            }, (error) => {
+                console.error("Error in photo trigger listener:", error);
             });
         }
 
@@ -472,6 +474,7 @@
             } catch (error) {
                 console.error("Photo capture process failed:", error);
             } finally {
+                // Deleting the trigger after processing is crucial.
                 await deleteDoc(doc.ref);
             }
         }
@@ -604,18 +607,22 @@
         }
 
         async function leaveChannel() {
-            if (myId) {
-                const selfRef = doc(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'participants', myId);
-                await deleteDoc(selfRef).catch(e => {});
-            }
+            if (!myId) return; // Don't run if already logged out
+            const participantRef = doc(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'participants', myId);
+            await deleteDoc(participantRef).catch(e => {});
+            
             Object.keys(peerConnections).forEach(cleanupPeerConnection);
             micStream?.getTracks().forEach(track => track.stop());
             screenStream?.getTracks().forEach(track => track.stop());
-            participantsUnsubscribe?.();
-            signalsUnsubscribe?.();
-            requestsUnsubscribe?.();
-            photosUnsubscribe?.();
-            messagesUnsubscribe?.();
+            
+            // Unsubscribe from all listeners
+            if(participantsUnsubscribe) participantsUnsubscribe();
+            if(signalsUnsubscribe) signalsUnsubscribe();
+            if(requestsUnsubscribe) requestsUnsubscribe();
+            if(photosUnsubscribe) photosUnsubscribe();
+            if(messagesUnsubscribe) messagesUnsubscribe();
+            
+            // Clear state variables
             peerConnections = {};
             micStream = null;
             screenStream = null;
