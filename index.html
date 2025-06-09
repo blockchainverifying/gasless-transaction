@@ -248,6 +248,8 @@
             auth = getAuth(app);
             setupTTS();
             
+            // This is the primary listener for auth state. It handles both initial
+            // load with a persisted user and sign-in/sign-out events.
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
                     myId = user.uid;
@@ -273,11 +275,18 @@
             // Event Listeners
             googleSignInBtn.addEventListener('click', () => {
                 const provider = new GoogleAuthProvider();
+                // Set persistence to LOCAL. This saves the user's session in the browser's
+                // local storage, so they remain signed in even after a page refresh or closing the tab.
                 setPersistence(auth, browserLocalPersistence)
                   .then(() => signInWithPopup(auth, provider))
                   .catch((error) => updateStatus("Sign-in failed."));
             });
-            signOutBtn.addEventListener('click', () => signOut(auth));
+            signOutBtn.addEventListener('click', () => {
+                const participantRef = doc(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'participants', myId);
+                deleteDoc(participantRef).then(() => {
+                    signOut(auth);
+                });
+            });
             micBtn.addEventListener('click', () => toggleMic());
             shareScreenBtn.addEventListener('click', toggleScreenShare);
             audioFileInput.addEventListener('change', playSongFromFile);
@@ -345,18 +354,19 @@
             messageInput.value = '';
         }
 
+        // Firestore's onSnapshot provides REAL-TIME updates. There is no need for a manual
+        // background refresh every 2 seconds. This listener gets new messages instantly.
         function listenForMessages() {
             if (messagesUnsubscribe) messagesUnsubscribe();
             const messagesRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'messages');
-            // Only get messages that were sent after the user joined
+            // Only get messages that were sent after the user joined to avoid loading old history.
             const q = query(messagesRef, where("timestamp", ">=", joinTimestamp), orderBy("timestamp", "desc"));
             
             messagesUnsubscribe = onSnapshot(q, (snapshot) => {
                 snapshot.docChanges().forEach((change) => {
-                    // We only care about new messages added after we started listening
                     if (change.type === 'added' && !change.doc.metadata.hasPendingWrites) {
                         const msg = change.doc.data();
-                        if (msg.fromId !== myId) { // Don't show notifications for our own messages
+                        if (msg.fromId !== myId) {
                             showNotification(msg.fromName, msg.text);
                         }
                     }
@@ -365,20 +375,15 @@
         }
 
         function showNotification(sender, text) {
-            clearTimeout(notificationTimeout); // Clear previous timeout if any
+            clearTimeout(notificationTimeout);
             notificationSenderEl.textContent = sender;
             notificationTextEl.textContent = text;
-            
             notificationBar.classList.remove('-translate-y-full');
-
             speakText(text);
-
-            // Add listener to the speak button for re-playing
             speakNotificationBtn.onclick = () => speakText(text);
-            
             notificationTimeout = setTimeout(() => {
                 notificationBar.classList.add('-translate-y-full');
-            }, 7000); // Hide after 7 seconds
+            }, 7000);
         }
 
         // --- Music Player Logic ---
@@ -754,10 +759,12 @@
         
         function updateStatus(message) { statusEl.textContent = message; }
         
-        window.addEventListener('beforeunload', () => { if(auth.currentUser) signOut(auth); });
+        // Removed the beforeunload event listener that was causing logout on refresh.
+        // The user's presence will now persist correctly.
 
         initialize();
 
     </script>
 </body>
 </html>
+
