@@ -41,10 +41,14 @@
         <h1 class="text-3xl font-bold text-white mb-2">Public Radio</h1>
         <p class="text-lg text-gray-400 mb-8">91.5 FM</p>
 
-        <!-- Mic Mute/Unmute Button -->
-        <div class="my-8">
-            <button id="micBtn" class="w-24 h-24 flex items-center justify-center bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-full transition-all duration-300 mx-auto shadow-lg" disabled>
+        <!-- Control Buttons -->
+        <div class="my-8 flex justify-center items-center space-x-4">
+            <button id="micBtn" class="w-24 h-24 flex items-center justify-center bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-full transition-all duration-300 shadow-lg" disabled>
                 <i id="micIcon" class="fas fa-microphone-slash text-3xl"></i>
+            </button>
+             <button id="shareScreenBtn" class="w-24 h-24 flex flex-col items-center justify-center bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-full transition-all duration-300 shadow-lg" disabled>
+                <i id="shareIcon" class="fas fa-desktop text-3xl"></i>
+                <span class="text-xs mt-1">Share</span>
             </button>
         </div>
 
@@ -68,7 +72,7 @@
         // Firebase modules import
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
-        import { getFirestore, doc, onSnapshot, collection, addDoc, getDocs, deleteDoc, setDoc, query, where } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
+        import { getFirestore, doc, onSnapshot, collection, addDoc, deleteDoc, setDoc, query, where } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
 
         // --- Channel Configuration ---
         const DEFAULT_CHANNEL_ID = 'radio-91.5-fm';
@@ -81,14 +85,18 @@
         const userCountEl = document.getElementById('user-count');
         const micBtn = document.getElementById('micBtn');
         const micIcon = document.getElementById('micIcon');
+        const shareScreenBtn = document.getElementById('shareScreenBtn');
+        const shareIcon = document.getElementById('shareIcon');
         
         // --- App State ---
         let db, auth;
-        let localStream;
+        let micStream; // Sirf microphone stream
+        let screenStream; // Sirf screen/system audio stream
         let myId = null;
-        let peerConnections = {}; // Sabhi connections ko store karega
+        let peerConnections = {}; 
         let participantsUnsubscribe = null;
         let isMuted = true;
+        let isScreenSharing = false;
 
         // Firebase configuration
         const firebaseConfig = {
@@ -110,13 +118,14 @@
                 db = getFirestore(app);
                 auth = getAuth(app);
                 
-                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                localAudio.srcObject = localStream;
+                micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                localAudio.srcObject = micStream;
                 toggleMic(false); 
                 
                 onAuthStateChanged(auth, user => {
                     if (user && !myId) { 
                         myId = user.uid;
+                        shareScreenBtn.disabled = false;
                         joinChannel();
                     }
                 });
@@ -128,24 +137,24 @@
                 updateStatus("Mic/Connection Error");
             }
             micBtn.addEventListener('click', () => toggleMic());
+            shareScreenBtn.addEventListener('click', toggleScreenShare);
         }
-
+        
+        // --- Audio Source Management ---
         function toggleMic(shouldToggle = true) {
-            if (!localStream) return;
-            
+            if (!micStream) return;
+            if (isScreenSharing) return; // Screen share ke dauran mic control na karein
+
             if(shouldToggle) isMuted = !isMuted;
             else isMuted = false;
 
-            localStream.getAudioTracks().forEach(track => {
-                track.enabled = !isMuted;
-            });
+            micStream.getAudioTracks().forEach(track => { track.enabled = !isMuted; });
             
             micBtn.disabled = false;
             if (isMuted) {
                 micIcon.className = 'fas fa-microphone-slash text-3xl text-red-400';
                 micBtn.classList.remove('active', 'bg-green-500/20');
                 micBtn.classList.add('bg-slate-700');
-
             } else {
                 micIcon.className = 'fas fa-microphone text-3xl text-green-400';
                 micBtn.classList.add('active', 'bg-green-500/20');
@@ -153,6 +162,69 @@
             }
         }
 
+        async function toggleScreenShare() {
+            if (isScreenSharing) {
+                stopScreenShare();
+            } else {
+                startScreenShare();
+            }
+        }
+
+        async function startScreenShare() {
+            try {
+                screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+                
+                const screenAudioTrack = screenStream.getAudioTracks()[0];
+                if (!screenAudioTrack) {
+                    alert("Aapne audio share karne ki anumati nahi di. Kripya dobara koshish karein aur checkbox ko tick karein.");
+                    screenStream.getTracks().forEach(track => track.stop());
+                    return;
+                }
+
+                isScreenSharing = true;
+                replaceTrackInPeers(screenAudioTrack);
+
+                // UI update karein
+                micBtn.disabled = true;
+                shareIcon.className = 'fas fa-stop-circle text-3xl text-red-400';
+                shareScreenBtn.querySelector('span').textContent = 'Stop';
+
+                // Jab user browser ke UI se share band kare
+                screenStream.getTracks().forEach(track => {
+                    track.onended = () => stopScreenShare();
+                });
+
+            } catch(e) {
+                console.error("Screen share error:", e);
+            }
+        }
+
+        function stopScreenShare() {
+            if (!isScreenSharing) return;
+
+            screenStream.getTracks().forEach(track => track.stop());
+            isScreenSharing = false;
+
+            // Mic audio par wapas switch karein
+            replaceTrackInPeers(micStream.getAudioTracks()[0]);
+
+            // UI reset karein
+            micBtn.disabled = false;
+            shareIcon.className = 'fas fa-desktop text-3xl';
+            shareScreenBtn.querySelector('span').textContent = 'Share';
+        }
+
+        function replaceTrackInPeers(newTrack) {
+            for (const partnerId in peerConnections) {
+                const pc = peerConnections[partnerId];
+                const sender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+                if (sender) {
+                    sender.replaceTrack(newTrack);
+                }
+            }
+        }
+
+        // --- Channel & WebRTC Logic ---
         async function joinChannel() {
             const channelRef = doc(db, 'radio_channels', DEFAULT_CHANNEL_ID);
             const participantsRef = collection(channelRef, 'participants');
@@ -164,40 +236,27 @@
             if(participantsUnsubscribe) participantsUnsubscribe();
             participantsUnsubscribe = onSnapshot(participantsRef, (snapshot) => {
                 const currentParticipants = new Set();
-                snapshot.forEach(doc => {
-                    if (doc.id !== myId) {
-                        currentParticipants.add(doc.id);
-                    }
-                });
-                
+                snapshot.forEach(doc => { if (doc.id !== myId) currentParticipants.add(doc.id); });
                 connectedUsersEl.textContent = currentParticipants.size + 1;
 
                 for (const participantId of currentParticipants) {
-                    if (myId < participantId) {
-                        if (!peerConnections[participantId]) {
-                             createPeerConnection(participantId, true); // I am the caller
-                        }
-                    }
+                    if (myId < participantId) createPeerConnection(participantId, true);
                 }
                 
                 const existingPeers = new Set(Object.keys(peerConnections));
                 for (const participantId of existingPeers) {
-                    if (!currentParticipants.has(participantId)) {
-                        cleanupPeerConnection(participantId);
-                    }
+                    if (!currentParticipants.has(participantId)) cleanupPeerConnection(participantId);
                 }
             });
-
             listenForOffers();
         }
 
         function createPeerConnection(partnerId, isCaller) {
             if (peerConnections[partnerId]) return;
-
             const pc = new RTCPeerConnection(servers);
             peerConnections[partnerId] = pc;
             
-            localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+            micStream.getTracks().forEach(track => pc.addTrack(track, micStream));
 
             pc.ontrack = event => {
                 let audioEl = document.getElementById(`audio_${partnerId}`);
@@ -211,11 +270,7 @@
             };
 
             pc.onicecandidate = e => e.candidate && sendSignal({ candidate: e.candidate.toJSON() }, partnerId);
-
             pc.onconnectionstatechange = () => {
-                // ** AUTO-RECONNECT LOGIC **
-                // Agar connection fail hota hai, to use clean up karein.
-                // onSnapshot listener apne aap dobara connect karne ki koshish karega.
                 if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
                     cleanupPeerConnection(partnerId);
                 }
@@ -290,13 +345,12 @@
                 await deleteDoc(selfRef);
             }
             Object.keys(peerConnections).forEach(cleanupPeerConnection);
-            if(localStream) localStream.getTracks().forEach(track => track.stop());
+            if(micStream) micStream.getTracks().forEach(track => track.stop());
+            if(screenStream) screenStream.getTracks().forEach(track => track.stop());
             if(participantsUnsubscribe) participantsUnsubscribe();
         }
 
-        function updateStatus(message) {
-            statusEl.textContent = message;
-        }
+        function updateStatus(message) { statusEl.textContent = message; }
         
         window.addEventListener('beforeunload', leaveChannel);
 
