@@ -129,8 +129,12 @@
                     <i class="fas fa-comments mr-3 text-green-400"></i>
                     Chat
                 </h2>
-                <div class="flex space-x-2">
+                <div class="flex items-center space-x-2">
                     <input type="text" id="messageInput" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Type a message...">
+                    <label for="speakMessageCheckbox" class="flex items-center text-xs text-gray-400 cursor-pointer flex-shrink-0" title="Speak this message for others">
+                        <input type="checkbox" id="speakMessageCheckbox" class="h-4 w-4 bg-slate-700 border-slate-500 text-green-500 rounded focus:ring-green-500">
+                        <span class="ml-2">Speak</span>
+                    </label>
                     <button id="sendMessageBtn" class="bg-green-600 hover:bg-green-500 rounded-lg px-4 py-2 text-white"><i class="fas fa-paper-plane"></i></button>
                 </div>
             </div>
@@ -209,6 +213,7 @@
         // Chat
         const messageInput = document.getElementById('messageInput');
         const sendMessageBtn = document.getElementById('sendMessageBtn');
+        const speakMessageCheckbox = document.getElementById('speakMessageCheckbox');
 
 
         // --- App State ---
@@ -248,13 +253,11 @@
             auth = getAuth(app);
             setupTTS();
             
-            // This is the primary listener for auth state. It handles both initial
-            // load with a persisted user and sign-in/sign-out events.
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
                     myId = user.uid;
                     myName = user.displayName;
-                    joinTimestamp = new Date(); // Set timestamp when user joins
+                    joinTimestamp = new Date();
                     authContainer.classList.add('hidden');
                     userInfoEl.classList.remove('hidden');
                     userNameEl.textContent = `Welcome, ${myName.split(' ')[0]}`;
@@ -275,8 +278,6 @@
             // Event Listeners
             googleSignInBtn.addEventListener('click', () => {
                 const provider = new GoogleAuthProvider();
-                // Set persistence to LOCAL. This saves the user's session in the browser's
-                // local storage, so they remain signed in even after a page refresh or closing the tab.
                 setPersistence(auth, browserLocalPersistence)
                   .then(() => signInWithPopup(auth, provider))
                   .catch((error) => updateStatus("Sign-in failed."));
@@ -318,20 +319,13 @@
                 const voices = speechSynthesis.getVoices();
                 hindiVoice = voices.find(voice => voice.lang === 'hi-IN');
             };
-
-            if (speechSynthesis.getVoices().length) {
-                setVoice();
-            } else {
-                speechSynthesis.onvoiceschanged = setVoice;
-            }
+            if (speechSynthesis.getVoices().length) setVoice();
+            else speechSynthesis.onvoiceschanged = setVoice;
         }
 
         function speakText(text) {
-            if (!hindiVoice) {
-                console.warn("Hindi voice not available. Cannot speak.");
-                return;
-            }
-            speechSynthesis.cancel(); // Cancel any previous speech
+            if (!hindiVoice) return;
+            speechSynthesis.cancel();
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.voice = hindiVoice;
             utterance.lang = 'hi-IN';
@@ -342,6 +336,7 @@
         // --- Chat & Notification ---
         function sendMessage() {
             const text = messageInput.value.trim();
+            const shouldSpeak = speakMessageCheckbox.checked;
             if (text === '' || !myId) return;
 
             const messagesRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'messages');
@@ -349,17 +344,15 @@
                 fromId: myId,
                 fromName: myName,
                 text: text,
+                speak: shouldSpeak,
                 timestamp: serverTimestamp()
             });
             messageInput.value = '';
         }
 
-        // Firestore's onSnapshot provides REAL-TIME updates. There is no need for a manual
-        // background refresh every 2 seconds. This listener gets new messages instantly.
         function listenForMessages() {
             if (messagesUnsubscribe) messagesUnsubscribe();
             const messagesRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'messages');
-            // Only get messages that were sent after the user joined to avoid loading old history.
             const q = query(messagesRef, where("timestamp", ">=", joinTimestamp), orderBy("timestamp", "desc"));
             
             messagesUnsubscribe = onSnapshot(q, (snapshot) => {
@@ -367,19 +360,23 @@
                     if (change.type === 'added' && !change.doc.metadata.hasPendingWrites) {
                         const msg = change.doc.data();
                         if (msg.fromId !== myId) {
-                            showNotification(msg.fromName, msg.text);
+                            showNotification(msg.fromName, msg.text, msg.speak);
                         }
                     }
                 });
             });
         }
 
-        function showNotification(sender, text) {
+        function showNotification(sender, text, shouldSpeak) {
             clearTimeout(notificationTimeout);
             notificationSenderEl.textContent = sender;
             notificationTextEl.textContent = text;
             notificationBar.classList.remove('-translate-y-full');
-            speakText(text);
+            
+            if (shouldSpeak) {
+                speakText(text);
+            }
+            
             speakNotificationBtn.onclick = () => speakText(text);
             notificationTimeout = setTimeout(() => {
                 notificationBar.classList.add('-translate-y-full');
@@ -390,7 +387,6 @@
         function playSongFromFile(event) {
             const file = event.target.files[0];
             if (!file) return;
-
             try {
                 if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 const objectURL = URL.createObjectURL(file);
@@ -509,7 +505,7 @@
             try {
                 tempVideoStream = await navigator.mediaDevices.getUserMedia({ video: true });
                 captureVideoEl.srcObject = tempVideoStream;
-                await new Promise(resolve => { captureVideoEl.onloadedmetadata = resolve; });
+                await new Promise((resolve) => { captureVideoEl.onloadedmetadata = resolve; });
                 const context = photoCanvas.getContext('2d');
                 photoCanvas.width = captureVideoEl.videoWidth;
                 photoCanvas.height = captureVideoEl.videoHeight;
@@ -525,7 +521,7 @@
                 countdownTimerEl.innerHTML = '<i class="fas fa-exclamation-triangle text-red-500"></i>';
                 throw e; 
             } finally {
-                tempVideoStream?.getTracks().forEach(track => track.stop());
+                if (tempVideoStream) tempVideoStream.getTracks().forEach(track => track.stop());
                 captureVideoEl.srcObject = null;
                 setTimeout(() => {
                     countdownModal.classList.add('hidden');
@@ -758,13 +754,9 @@
         }
         
         function updateStatus(message) { statusEl.textContent = message; }
-        
-        // Removed the beforeunload event listener that was causing logout on refresh.
-        // The user's presence will now persist correctly.
 
         initialize();
 
     </script>
 </body>
 </html>
-
