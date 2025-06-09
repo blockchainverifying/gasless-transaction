@@ -74,16 +74,18 @@
                     </button>
                 </div>
 
-                <!-- Music URL Player -->
-                <div id="url-player-container" class="my-6 space-y-3 hidden">
-                    <p class="text-xs text-gray-400">Play from direct audio URL (.mp3, .wav)</p>
-                     <div class="flex space-x-2">
-                        <input type="url" id="songUrlInput" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-sky-500" placeholder="Paste audio URL...">
-                        <button id="playUrlBtn" class="bg-sky-600 hover:bg-sky-500 rounded-lg px-3 py-2 text-white"><i class="fas fa-play"></i></button>
-                        <button id="stopUrlBtn" class="bg-red-600 hover:bg-red-500 rounded-lg px-3 py-2 text-white hidden"><i class="fas fa-stop"></i></button>
+                <!-- Music File Player -->
+                <div id="file-player-container" class="my-6 space-y-3 hidden">
+                    <p class="text-xs text-gray-400">Play from local audio file</p>
+                    <div class="flex items-center space-x-2">
+                        <label for="audioFileInput" class="flex-grow bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white cursor-pointer hover:bg-slate-700 truncate">
+                            <i class="fas fa-folder-open mr-2"></i>
+                            <span id="fileName">Select Audio File</span>
+                        </label>
+                        <input type="file" id="audioFileInput" class="hidden" accept="audio/*">
+                        <button id="stopFileBtn" class="bg-red-600 hover:bg-red-500 rounded-lg px-3 py-2 text-white hidden"><i class="fas fa-stop"></i></button>
                     </div>
                 </div>
-
 
                 <div class="bg-slate-900/50 rounded-lg p-3 flex items-center justify-center space-x-3">
                     <span id="status" class="font-medium text-gray-300 text-sm">Please sign in.</span>
@@ -133,13 +135,13 @@
     <video id="capture-view" autoplay playsinline class="hidden"></video>
     <div id="audio-container" class="hidden"></div>
     <audio id="localAudio" muted autoplay playsinline></audio>
-    <audio id="urlAudioPlayer" crossOrigin="anonymous" class="hidden"></audio>
+    <audio id="fileAudioPlayer" crossOrigin="anonymous" class="hidden"></audio>
 
 
     <script type="module">
         // --- Firebase Modules ---
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
-        import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
         import { getFirestore, doc, onSnapshot, collection, addDoc, deleteDoc, setDoc, query, where, updateDoc, serverTimestamp, orderBy } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
 
         // --- App Configuration ---
@@ -167,26 +169,26 @@
         const countdownTimerEl = document.getElementById('countdown-timer');
         const photoCanvas = document.getElementById('photo-canvas');
         const captureVideoEl = document.getElementById('capture-view');
-        // URL Player
-        const urlPlayerContainer = document.getElementById('url-player-container');
-        const songUrlInput = document.getElementById('songUrlInput');
-        const playUrlBtn = document.getElementById('playUrlBtn');
-        const stopUrlBtn = document.getElementById('stopUrlBtn');
-        const urlAudioPlayer = document.getElementById('urlAudioPlayer');
+        // File Player
+        const filePlayerContainer = document.getElementById('file-player-container');
+        const audioFileInput = document.getElementById('audioFileInput');
+        const fileNameEl = document.getElementById('fileName');
+        const stopFileBtn = document.getElementById('stopFileBtn');
+        const fileAudioPlayer = document.getElementById('fileAudioPlayer');
 
 
         // --- App State ---
         let db, auth;
         let myId = null;
         let myName = null;
-        let micStream, screenStream, urlAudioStream;
+        let micStream, screenStream, fileAudioStream;
         let peerConnections = {}; 
-        let audioContext; // To capture audio from URL
+        let audioContext; 
         // Subscriptions
         let participantsUnsubscribe, signalsUnsubscribe, requestsUnsubscribe, photosUnsubscribe;
         let isMuted = true;
         let isScreenSharing = false;
-        let isUrlPlaying = false;
+        let isFilePlaying = false;
 
         // --- Firebase Config ---
         const firebaseConfig = {
@@ -213,7 +215,7 @@
                     authContainer.classList.add('hidden');
                     userInfoEl.classList.remove('hidden');
                     userNameEl.textContent = `Welcome, ${myName.split(' ')[0]}`;
-                    urlPlayerContainer.classList.remove('hidden');
+                    filePlayerContainer.classList.remove('hidden');
                     await setupMediaAndJoinChannel();
                 } else {
                     await leaveChannel();
@@ -221,7 +223,7 @@
                     myName = null;
                     authContainer.classList.remove('hidden');
                     userInfoEl.classList.add('hidden');
-                    urlPlayerContainer.classList.add('hidden');
+                    filePlayerContainer.classList.add('hidden');
                     updateStatus("Please sign in.");
                     resetUI();
                 }
@@ -230,13 +232,21 @@
             // Event Listeners
             googleSignInBtn.addEventListener('click', () => {
                 const provider = new GoogleAuthProvider();
-                signInWithPopup(auth, provider).catch(error => updateStatus("Sign-in failed."));
+                // Set persistence to LOCAL to keep user signed in across browser sessions.
+                setPersistence(auth, browserLocalPersistence)
+                  .then(() => {
+                    return signInWithPopup(auth, provider);
+                  })
+                  .catch((error) => {
+                    console.error("Sign-in persistence error:", error);
+                    updateStatus("Sign-in failed. Please try again.");
+                  });
             });
             signOutBtn.addEventListener('click', () => signOut(auth));
             micBtn.addEventListener('click', () => toggleMic());
             shareScreenBtn.addEventListener('click', toggleScreenShare);
-            playUrlBtn.addEventListener('click', playSongFromUrl);
-            stopUrlBtn.addEventListener('click', stopSongFromUrl);
+            audioFileInput.addEventListener('change', playSongFromFile);
+            stopFileBtn.addEventListener('click', stopSongFromFile);
         }
 
         async function setupMediaAndJoinChannel() {
@@ -253,38 +263,38 @@
         }
         
         // --- Music Player Logic ---
-        function playSongFromUrl() {
-            const url = songUrlInput.value.trim();
-            if (!url) {
-                updateStatus("Please enter an audio URL.");
+        function playSongFromFile(event) {
+            const file = event.target.files[0];
+            if (!file) {
                 return;
             }
 
             try {
-                // Initialize AudioContext on user gesture
                 if (!audioContext) {
                     audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 }
 
-                urlAudioPlayer.src = url;
-                urlAudioPlayer.play().then(() => {
-                    if (!urlAudioStream) {
-                        const source = audioContext.createMediaElementSource(urlAudioPlayer);
+                const objectURL = URL.createObjectURL(file);
+                fileAudioPlayer.src = objectURL;
+                fileAudioPlayer.play().then(() => {
+                    if (!fileAudioStream) {
+                        const source = audioContext.createMediaElementSource(fileAudioPlayer);
                         const destination = audioContext.createMediaStreamDestination();
                         source.connect(destination);
-                        urlAudioStream = destination.stream;
+                        fileAudioStream = destination.stream;
                     }
                     
-                    const urlAudioTrack = urlAudioStream.getAudioTracks()[0];
-                    if (urlAudioTrack) {
-                        replaceTrackInPeers(urlAudioTrack);
-                        updateStatus(`Playing: ${url.split('/').pop()}`);
-                        isUrlPlaying = true;
-                        updateControlsForUrlPlayback(true);
+                    const fileAudioTrack = fileAudioStream.getAudioTracks()[0];
+                    if (fileAudioTrack) {
+                        replaceTrackInPeers(fileAudioTrack);
+                        updateStatus(`Playing: ${file.name}`);
+                        fileNameEl.textContent = file.name;
+                        isFilePlaying = true;
+                        updateControlsForFilePlayback(true);
                     }
                 }).catch(e => {
-                    console.error("Error playing URL:", e);
-                    updateStatus("Error: Could not play audio URL.");
+                    console.error("Error playing file:", e);
+                    updateStatus("Error: Could not play audio file.");
                 });
             } catch (e) {
                 console.error("AudioContext error:", e);
@@ -292,34 +302,37 @@
             }
         }
         
-        function stopSongFromUrl() {
-            urlAudioPlayer.pause();
-            urlAudioPlayer.src = "";
-            isUrlPlaying = false;
+        function stopSongFromFile() {
+            const currentSrc = fileAudioPlayer.src;
+            fileAudioPlayer.pause();
+            fileAudioPlayer.src = "";
+            if (currentSrc) {
+                URL.revokeObjectURL(currentSrc); // Clean up the blob URL to free memory
+            }
+            isFilePlaying = false;
 
-            // Revert to microphone stream
             const micTrack = micStream.getAudioTracks()[0];
             if (micTrack) {
                 replaceTrackInPeers(micTrack);
             }
-            updateControlsForUrlPlayback(false);
+            updateControlsForFilePlayback(false);
             updateStatus("Connected to Channel");
+            fileNameEl.textContent = "Select Audio File";
+            audioFileInput.value = ""; // Reset file input
         }
 
-        function updateControlsForUrlPlayback(isPlaying) {
+        function updateControlsForFilePlayback(isPlaying) {
             if (isPlaying) {
                 micBtn.disabled = true;
                 shareScreenBtn.disabled = true;
                 micIcon.className = 'fas fa-music text-2xl text-sky-400';
                 micBtn.classList.remove('active', 'bg-green-500/20');
-                playUrlBtn.classList.add('hidden');
-                stopUrlBtn.classList.remove('hidden');
+                stopFileBtn.classList.remove('hidden');
             } else {
                 micBtn.disabled = false;
                 shareScreenBtn.disabled = false;
                 toggleMic(false); // Reset mic to its previous state
-                playUrlBtn.classList.remove('hidden');
-                stopUrlBtn.classList.add('hidden');
+                stopFileBtn.classList.add('hidden');
             }
         }
 
@@ -536,7 +549,7 @@
         }
         
         function toggleMic(shouldToggle = true) {
-            if (!micStream || isUrlPlaying) return;
+            if (!micStream || isFilePlaying) return;
             if(shouldToggle) isMuted = !isMuted; else isMuted = false;
             micStream.getAudioTracks().forEach(track => { track.enabled = !isMuted; });
             micBtn.disabled = false;
@@ -550,7 +563,7 @@
         }
 
         async function toggleScreenShare() {
-            if(isUrlPlaying) return;
+            if(isFilePlaying) return;
             if (isScreenSharing) stopScreenShare(); else startScreenShare();
         }
 
@@ -591,7 +604,6 @@
             const pc = new RTCPeerConnection(servers);
             peerConnections[partnerId] = pc;
             
-            // Add the current primary audio track to the connection
             const initialTrack = micStream.getAudioTracks()[0];
             if(initialTrack) pc.addTrack(initialTrack, micStream);
 
