@@ -13,10 +13,10 @@
             background-color: #0f172a; /* slate-900 */
         }
         .glass-card {
-            background: rgba(30, 41, 59, 0.5); /* slate-800 with 50% opacity */
+            background: rgba(30, 41, 59, 0.5);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
-            border: 1px solid rgba(51, 65, 85, 0.5); /* slate-700 with 50% opacity */
+            border: 1px solid rgba(51, 65, 85, 0.5);
             animation: fadeIn 0.8s ease-in-out;
         }
         @keyframes fadeIn {
@@ -24,7 +24,7 @@
             to { opacity: 1; transform: translateY(0); }
         }
         .mic-button.active {
-            box-shadow: 0 0 25px rgba(34, 197, 94, 0.6); /* green-500 glow */
+            box-shadow: 0 0 25px rgba(34, 197, 94, 0.6);
             animation: pulse-glow 2s infinite;
         }
         @keyframes pulse-glow {
@@ -32,73 +32,121 @@
             50% { box-shadow: 0 0 35px rgba(34, 197, 94, 0.9); }
             100% { box-shadow: 0 0 25px rgba(34, 197, 94, 0.6); }
         }
-        .google-btn {
-            transition: all 0.3s ease;
-        }
-        .google-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-        }
+        .google-btn { transition: all 0.3s ease; }
+        .google-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+        .modal-backdrop { animation: fadeInBackdrop 0.3s ease; }
+        @keyframes fadeInBackdrop { from { opacity: 0; } to { opacity: 1; } }
+        /* Scrollbar styles */
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #1e293b; } /* slate-800 */
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; } /* slate-600 */
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #64748b; } /* slate-500 */
     </style>
 </head>
-<body class="bg-gradient-to-br from-slate-900 to-gray-900 text-white flex items-center justify-center min-h-screen p-4">
+<body class="bg-gradient-to-br from-slate-900 to-gray-900 text-white flex items-center justify-center min-h-screen p-2 md:p-4">
 
-    <div class="w-full max-w-sm mx-auto p-8 glass-card rounded-2xl shadow-2xl text-center">
+    <div class="w-full max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
         
-        <h1 class="text-3xl font-bold text-white mb-2">Public Radio</h1>
-        <p class="text-lg text-gray-400 mb-8">91.5 FM</p>
+        <!-- Left Panel: Controls & User Info -->
+        <div class="md:col-span-1">
+            <div class="glass-card rounded-2xl shadow-2xl text-center p-6 sticky top-6">
+                <h1 class="text-3xl font-bold text-white mb-2">Public Radio</h1>
+                <p class="text-lg text-gray-400 mb-6">91.5 FM</p>
 
-        <div id="auth-container">
-            <button id="googleSignInBtn" class="google-btn bg-white text-gray-800 font-semibold py-2 px-4 rounded-lg w-full flex items-center justify-center">
-                <i class="fab fa-google mr-3"></i>
-                Sign in with Google
-            </button>
-        </div>
-        <div id="user-info" class="hidden flex items-center justify-between mt-4">
-             <span id="userName" class="text-sm text-gray-300"></span>
-             <button id="signOutBtn" class="text-xs text-red-400 hover:text-red-300">Sign Out</button>
+                <div id="auth-container">
+                    <button id="googleSignInBtn" class="google-btn bg-white text-gray-800 font-semibold py-2 px-4 rounded-lg w-full flex items-center justify-center">
+                        <i class="fab fa-google mr-3"></i>
+                        Sign in with Google
+                    </button>
+                </div>
+                <div id="user-info" class="hidden items-center justify-between mt-4">
+                    <span id="userName" class="text-sm text-gray-300 truncate"></span>
+                    <button id="signOutBtn" class="text-xs text-red-400 hover:text-red-300 ml-2 flex-shrink-0">Sign Out</button>
+                </div>
+
+                <div class="my-6 flex justify-center items-center space-x-4">
+                    <button id="micBtn" class="w-20 h-20 flex items-center justify-center bg-slate-700 text-white font-bold rounded-full transition-all duration-300 shadow-lg" disabled>
+                        <i id="micIcon" class="fas fa-microphone-slash text-2xl"></i>
+                    </button>
+                    <button id="shareScreenBtn" class="w-20 h-20 flex flex-col items-center justify-center bg-slate-700 text-white font-bold rounded-full transition-all duration-300 shadow-lg" disabled>
+                        <i id="shareIcon" class="fas fa-desktop text-2xl"></i>
+                        <span class="text-xs mt-1">Share</span>
+                    </button>
+                </div>
+
+                <div class="bg-slate-900/50 rounded-lg p-3 flex items-center justify-center space-x-3">
+                    <span id="status" class="font-medium text-gray-300 text-sm">Please sign in.</span>
+                </div>
+            </div>
         </div>
 
+        <!-- Right Panel: Participants & Photos -->
+        <div class="md:col-span-2 glass-card rounded-2xl shadow-2xl p-6">
+            <!-- Participants List -->
+            <div>
+                <h2 class="text-xl font-semibold mb-4 flex items-center">
+                    <i class="fas fa-users mr-3 text-sky-400"></i>
+                    Online Users (<span id="connectedUsers">0</span>)
+                </h2>
+                <div id="participants-list" class="h-40 overflow-y-auto custom-scrollbar pr-2 space-y-2">
+                    <!-- Participant items will be injected here -->
+                    <p class="text-gray-400">Sign in to see other users.</p>
+                </div>
+            </div>
 
-        <div class="my-8 flex justify-center items-center space-x-4">
-            <button id="micBtn" class="w-24 h-24 flex items-center justify-center bg-slate-700 text-white font-bold rounded-full transition-all duration-300 shadow-lg" disabled>
-                <i id="micIcon" class="fas fa-microphone-slash text-3xl"></i>
-            </button>
-             <button id="shareScreenBtn" class="w-24 h-24 flex flex-col items-center justify-center bg-slate-700 text-white font-bold rounded-full transition-all duration-300 shadow-lg" disabled>
-                <i id="shareIcon" class="fas fa-desktop text-3xl"></i>
-                <span class="text-xs mt-1">Share</span>
-            </button>
+            <hr class="border-slate-700 my-6">
+            
+            <!-- Shared Photos -->
+            <div>
+                 <h2 class="text-xl font-semibold mb-4 flex items-center">
+                    <i class="fas fa-camera-retro mr-3 text-purple-400"></i>
+                    Shared Photos
+                </h2>
+                <div id="photos-container" class="h-80 overflow-y-auto custom-scrollbar grid grid-cols-2 sm:grid-cols-3 gap-4 pr-2">
+                    <!-- Photo cards will be injected here -->
+                    <p id="no-photos-msg" class="text-gray-400 col-span-full">No photos shared yet.</p>
+                </div>
+            </div>
         </div>
-
-        <div class="bg-slate-900/50 rounded-lg p-3 flex items-center justify-center space-x-3">
-            <span id="status" class="font-medium text-gray-300">Please sign in to connect.</span>
-        </div>
-        
-        <div id="user-count" class="mt-4 text-sm text-gray-400 transition-opacity duration-500 opacity-0">
-            <i class="fas fa-users mr-1"></i>
-            <span id="connectedUsers">0</span> users connected
-        </div>
-
-        <div id="audio-container" class="hidden"></div>
-        <audio id="localAudio" muted autoplay playsinline></audio>
-        
     </div>
 
+    <!-- Modals and Hidden Elements -->
+    <div id="request-modal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center modal-backdrop z-50">
+        <div class="glass-card rounded-lg p-6 text-center max-w-sm mx-4">
+            <h3 class="text-lg font-semibold mb-2">Photo Request</h3>
+            <p id="request-message" class="text-gray-300 mb-4">Someone wants your photo!</p>
+            <div class="flex justify-center space-x-4">
+                <button id="accept-request-btn" class="bg-green-600 hover:bg-green-500 text-white font-bold py-2 px-4 rounded-lg">Accept</button>
+                <button id="reject-request-btn" class="bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-lg">Reject</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="camera-modal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center modal-backdrop z-50 p-4">
+        <div class="bg-slate-800 p-4 rounded-lg shadow-xl text-center">
+            <video id="camera-view" autoplay playsinline class="rounded-md w-full max-w-lg mb-4"></video>
+            <button id="capture-photo-btn" class="bg-sky-500 hover:bg-sky-400 text-white font-bold py-2 px-6 rounded-full text-lg">
+                <i class="fas fa-camera"></i> Take Photo
+            </button>
+            <canvas id="photo-canvas" class="hidden"></canvas>
+        </div>
+    </div>
+
+    <div id="audio-container" class="hidden"></div>
+    <audio id="localAudio" muted autoplay playsinline></audio>
+
     <script type="module">
-        // Firebase modules import
+        // --- Firebase Modules ---
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
         import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
-        import { getFirestore, doc, onSnapshot, collection, addDoc, deleteDoc, setDoc, query, where } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
+        import { getFirestore, doc, onSnapshot, collection, addDoc, deleteDoc, setDoc, query, where, updateDoc, serverTimestamp, orderBy } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
 
-        // --- Channel Configuration ---
+        // --- App Configuration ---
         const DEFAULT_CHANNEL_ID = 'radio-91.5-fm';
-        
+
         // --- DOM Elements ---
         const localAudio = document.getElementById('localAudio');
         const statusEl = document.getElementById('status');
-        const audioContainer = document.getElementById('audio-container');
-        const connectedUsersEl = document.getElementById('connectedUsers');
-        const userCountEl = document.getElementById('user-count');
         const micBtn = document.getElementById('micBtn');
         const micIcon = document.getElementById('micIcon');
         const shareScreenBtn = document.getElementById('shareScreenBtn');
@@ -108,19 +156,35 @@
         const authContainer = document.getElementById('auth-container');
         const userInfoEl = document.getElementById('user-info');
         const userNameEl = document.getElementById('userName');
+        const connectedUsersEl = document.getElementById('connectedUsers');
+        const participantsListEl = document.getElementById('participants-list');
+        const photosContainerEl = document.getElementById('photos-container');
+        const noPhotosMsg = document.getElementById('no-photos-msg');
+        // Modals
+        const requestModal = document.getElementById('request-modal');
+        const requestMessageEl = document.getElementById('request-message');
+        const acceptRequestBtn = document.getElementById('accept-request-btn');
+        const rejectRequestBtn = document.getElementById('reject-request-btn');
+        const cameraModal = document.getElementById('camera-modal');
+        const cameraView = document.getElementById('camera-view');
+        const capturePhotoBtn = document.getElementById('capture-photo-btn');
+        const photoCanvas = document.getElementById('photo-canvas');
 
-        
+
         // --- App State ---
         let db, auth;
-        let micStream;
-        let screenStream; 
         let myId = null;
+        let myName = null;
+        let micStream, screenStream, cameraStream;
         let peerConnections = {}; 
-        let participantsUnsubscribe = null;
+        // Subscriptions
+        let participantsUnsubscribe, signalsUnsubscribe, requestsUnsubscribe, photosUnsubscribe;
         let isMuted = true;
         let isScreenSharing = false;
+        let currentPhotoRequest = null;
 
-        // Firebase configuration
+
+        // --- Firebase Config ---
         const firebaseConfig = {
             apiKey: "AIzaSyCwzPmWpDmx4SEPeZkvzcYLnOd4k6QLe2U",
             authDomain: "my-voice-app-4eca5.firebaseapp.com",
@@ -130,152 +194,314 @@
             appId: "1:972654270500:web:c29a42a09972f5a4ce20b1",
             measurementId: "G-N31J1LYY6G"
         };
-        
         const servers = { iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }] };
 
-        // --- Main Initialization ---
+        // --- Initialization ---
         function initialize() {
-            try {
-                const app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-                
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        // User is signed in
-                        myId = user.uid;
-                        authContainer.classList.add('hidden');
-                        userInfoEl.classList.remove('hidden');
-                        userNameEl.textContent = `Welcome, ${user.displayName.split(' ')[0]}`;
-                        
-                        updateStatus("Initializing mic...");
-                        await setupMediaAndJoinChannel();
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    myId = user.uid;
+                    myName = user.displayName;
+                    authContainer.classList.add('hidden');
+                    userInfoEl.classList.remove('hidden');
+                    userNameEl.textContent = `Welcome, ${myName.split(' ')[0]}`;
+                    await setupMediaAndJoinChannel();
+                } else {
+                    await leaveChannel();
+                    myId = null;
+                    myName = null;
+                    authContainer.classList.remove('hidden');
+                    userInfoEl.classList.add('hidden');
+                    updateStatus("Please sign in.");
+                    resetUI();
+                }
+            });
 
-                    } else {
-                        // User is signed out
-                        myId = null;
-                        authContainer.classList.remove('hidden');
-                        userInfoEl.classList.add('hidden');
-                        updateStatus("Please sign in to connect.");
-                        resetUI();
-                    }
-                });
-
-            } catch (e) {
-                console.error("Initialization Error:", e);
-                updateStatus("Initialization Error");
-            }
-
+            // Event Listeners
             googleSignInBtn.addEventListener('click', () => {
                 const provider = new GoogleAuthProvider();
-                signInWithPopup(auth, provider)
-                    .catch(error => {
-                        console.error("Google Sign-In Error:", error);
-                        updateStatus("Sign-in failed. Please try again.");
-                    });
+                signInWithPopup(auth, provider).catch(error => updateStatus("Sign-in failed."));
             });
-
-            signOutBtn.addEventListener('click', () => {
-                leaveChannel();
-                signOut(auth);
-            });
-            
+            signOutBtn.addEventListener('click', () => signOut(auth));
             micBtn.addEventListener('click', () => toggleMic());
             shareScreenBtn.addEventListener('click', toggleScreenShare);
         }
 
         async function setupMediaAndJoinChannel() {
              try {
+                updateStatus("Initializing mic...");
                 micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 localAudio.srcObject = micStream;
                 toggleMic(false); 
                 shareScreenBtn.disabled = false;
                 joinChannel();
              } catch (e) {
-                 console.error("Mic Error:", e);
                  updateStatus("Mic permission denied.");
              }
         }
+        
+        // --- Photo Sharing Logic ---
+
+        function requestPhoto(targetId, targetName) {
+            if (!myId || !targetId) return;
+            const btn = document.getElementById(`request-btn-${targetId}`);
+            btn.disabled = true;
+            btn.textContent = 'Requested';
+
+            const requestsRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'photo_requests');
+            addDoc(requestsRef, {
+                fromId: myId,
+                fromName: myName,
+                toId: targetId,
+                status: 'pending',
+                timestamp: serverTimestamp()
+            });
+        }
+
+        function listenForPhotoRequests() {
+            if (requestsUnsubscribe) requestsUnsubscribe();
+            const requestsRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'photo_requests');
+            const q = query(requestsRef, where("toId", "==", myId), where("status", "==", "pending"));
+            requestsUnsubscribe = onSnapshot(q, (snapshot) => {
+                if (!snapshot.empty) {
+                    const request = snapshot.docs[0].data();
+                    currentPhotoRequest = { id: snapshot.docs[0].id, ...request };
+                    showRequestPopup(request.fromName);
+                }
+            });
+        }
+        
+        function showRequestPopup(fromName) {
+            requestMessageEl.textContent = `${fromName} is requesting a photo from you.`;
+            requestModal.classList.remove('hidden');
+            
+            acceptRequestBtn.onclick = () => handleRequestResponse(true);
+            rejectRequestBtn.onclick = () => handleRequestResponse(false);
+        }
+
+        async function handleRequestResponse(accepted) {
+            if (!currentPhotoRequest) return;
+            requestModal.classList.add('hidden');
+            
+            const requestDocRef = doc(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'photo_requests', currentPhotoRequest.id);
+
+            if (accepted) {
+                await updateDoc(requestDocRef, { status: 'accepted' });
+                openCamera();
+            } else {
+                await updateDoc(requestDocRef, { status: 'rejected' });
+            }
+            currentPhotoRequest = null;
+        }
+        
+        async function openCamera() {
+            try {
+                cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                cameraView.srcObject = cameraStream;
+                cameraModal.classList.remove('hidden');
+                capturePhotoBtn.onclick = captureAndSendPhoto;
+            } catch (e) {
+                alert("Could not access the camera.");
+            }
+        }
+        
+        function captureAndSendPhoto() {
+            const context = photoCanvas.getContext('2d');
+            photoCanvas.width = cameraView.videoWidth;
+            photoCanvas.height = cameraView.videoHeight;
+            context.drawImage(cameraView, 0, 0, photoCanvas.width, photoCanvas.height);
+            
+            const dataUrl = photoCanvas.toDataURL('image/jpeg', 0.8);
+
+            // Cleanup camera
+            cameraModal.classList.add('hidden');
+            cameraStream.getTracks().forEach(track => track.stop());
+            cameraStream = null;
+
+            // Send photo to Firestore
+            const photosRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'shared_photos');
+            addDoc(photosRef, {
+                fromId: myId,
+                fromName: myName,
+                photoDataUrl: dataUrl,
+                timestamp: serverTimestamp()
+            });
+
+            // Clean up the accepted request
+            if(currentPhotoRequest) {
+                 const requestDocRef = doc(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'photo_requests', currentPhotoRequest.id);
+                 deleteDoc(requestDocRef);
+                 currentPhotoRequest = null;
+            }
+        }
+
+        function listenForSharedPhotos() {
+            if (photosUnsubscribe) photosUnsubscribe();
+            const photosRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'shared_photos');
+            const q = query(photosRef, orderBy("timestamp", "desc"));
+            photosUnsubscribe = onSnapshot(q, (snapshot) => {
+                photosContainerEl.innerHTML = ''; // Clear existing photos
+                if(snapshot.empty) {
+                    noPhotosMsg.classList.remove('hidden');
+                } else {
+                    noPhotosMsg.classList.add('hidden');
+                    snapshot.forEach(doc => {
+                        const photo = doc.data();
+                        const photoEl = document.createElement('div');
+                        photoEl.className = 'relative group';
+                        photoEl.innerHTML = `
+                            <img src="${photo.photoDataUrl}" class="w-full h-full object-cover rounded-lg shadow-md aspect-square">
+                            <div class="absolute bottom-0 left-0 right-0 bg-black bg-opacity-60 text-white p-2 text-xs rounded-b-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                                From: ${photo.fromName}
+                            </div>
+                        `;
+                        photosContainerEl.appendChild(photoEl);
+                    });
+                }
+            });
+        }
+
+
+        // --- Channel & WebRTC Logic ---
+        async function joinChannel() {
+            const channelRef = doc(db, 'radio_channels', DEFAULT_CHANNEL_ID);
+            const participantsRef = collection(channelRef, 'participants');
+            
+            await setDoc(doc(participantsRef, myId), { name: myName, joinedAt: serverTimestamp() });
+            updateStatus("Connected to Channel");
+            
+            listenForParticipants(participantsRef);
+            listenForOffers();
+            listenForPhotoRequests();
+            listenForSharedPhotos();
+        }
+
+        function listenForParticipants(participantsRef) {
+            if (participantsUnsubscribe) participantsUnsubscribe();
+            participantsUnsubscribe = onSnapshot(participantsRef, (snapshot) => {
+                participantsListEl.innerHTML = '';
+                const currentParticipants = new Map();
+                snapshot.forEach(doc => {
+                    if (doc.id !== myId) {
+                        currentParticipants.set(doc.id, doc.data());
+                    }
+                });
+                
+                connectedUsersEl.textContent = currentParticipants.size + 1;
+                
+                if(currentParticipants.size === 0) {
+                     participantsListEl.innerHTML = '<p class="text-gray-400">You are the only one here.</p>';
+                } else {
+                    currentParticipants.forEach((data, id) => {
+                        const pEl = document.createElement('div');
+                        pEl.className = 'flex items-center justify-between bg-slate-700/50 p-2 rounded-lg';
+                        pEl.innerHTML = `
+                            <span class="text-gray-300 text-sm">${data.name}</span>
+                            <button id="request-btn-${id}" class="text-xs bg-sky-600 hover:bg-sky-500 text-white py-1 px-2 rounded-md transition">Request Photo</button>
+                        `;
+                        participantsListEl.appendChild(pEl);
+                        document.getElementById(`request-btn-${id}`).onclick = () => requestPhoto(id, data.name);
+                    });
+                }
+                
+                // --- WebRTC Connection Management ---
+                const participantIds = new Set(currentParticipants.keys());
+                for (const participantId of participantIds) {
+                    if (myId < participantId) createPeerConnection(participantId, true);
+                }
+                const existingPeers = new Set(Object.keys(peerConnections));
+                for (const participantId of existingPeers) {
+                    if (!participantIds.has(participantId)) cleanupPeerConnection(participantId);
+                }
+            });
+        }
+
+        async function leaveChannel() {
+            if (myId) {
+                const selfRef = doc(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'participants', myId);
+                await deleteDoc(selfRef).catch(e => {});
+            }
+            Object.keys(peerConnections).forEach(cleanupPeerConnection);
+            // Stop all streams
+            micStream?.getTracks().forEach(track => track.stop());
+            screenStream?.getTracks().forEach(track => track.stop());
+            cameraStream?.getTracks().forEach(track => track.stop());
+            // Unsubscribe from all listeners
+            participantsUnsubscribe?.();
+            signalsUnsubscribe?.();
+            requestsUnsubscribe?.();
+            photosUnsubscribe?.();
+            // Clear state
+            peerConnections = {};
+            micStream = null;
+            screenStream = null;
+            cameraStream = null;
+        }
+
+        // --- Boring UI, WebRTC, and other functions from previous version ---
+        // These have been integrated or remain largely the same.
+        // For brevity, they are assumed to be here (like createPeerConnection, listenForOffers, toggleMic, etc.)
+        // Full logic is included in the complete script.
 
         function resetUI() {
             micBtn.disabled = true;
             shareScreenBtn.disabled = true;
             micIcon.className = 'fas fa-microphone-slash text-3xl';
             micBtn.classList.remove('active', 'bg-green-500/20');
-            micBtn.classList.add('bg-slate-700');
-            userCountEl.classList.add('opacity-0');
+            participantsListEl.innerHTML = '<p class="text-gray-400">Sign in to see other users.</p>';
+            photosContainerEl.innerHTML = '';
+            noPhotosMsg.classList.remove('hidden');
+            connectedUsersEl.textContent = '0';
         }
         
-        // --- Audio Source Management ---
         function toggleMic(shouldToggle = true) {
             if (!micStream) return;
             if (isScreenSharing) return; 
-
-            if(shouldToggle) isMuted = !isMuted;
-            else isMuted = false;
-
+            if(shouldToggle) isMuted = !isMuted; else isMuted = false;
             micStream.getAudioTracks().forEach(track => { track.enabled = !isMuted; });
-            
             micBtn.disabled = false;
             if (isMuted) {
-                micIcon.className = 'fas fa-microphone-slash text-3xl text-red-400';
+                micIcon.className = 'fas fa-microphone-slash text-2xl text-red-400';
                 micBtn.classList.remove('active', 'bg-green-500/20');
-                micBtn.classList.add('bg-slate-700');
             } else {
-                micIcon.className = 'fas fa-microphone text-3xl text-green-400';
+                micIcon.className = 'fas fa-microphone text-2xl text-green-400';
                 micBtn.classList.add('active', 'bg-green-500/20');
-                micBtn.classList.remove('bg-slate-700');
             }
         }
 
         async function toggleScreenShare() {
-            if (isScreenSharing) {
-                stopScreenShare();
-            } else {
-                startScreenShare();
-            }
+            if (isScreenSharing) stopScreenShare(); else startScreenShare();
         }
 
         async function startScreenShare() {
             try {
                 screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-                
                 const screenAudioTrack = screenStream.getAudioTracks()[0];
                 if (!screenAudioTrack) {
-                    alert("You did not grant permission to share audio. Please try again and check the box.");
+                    alert("You did not share audio. Please try again.");
                     screenStream.getTracks().forEach(track => track.stop());
                     return;
                 }
-
                 isScreenSharing = true;
                 replaceTrackInPeers(screenAudioTrack);
-
-                // Update UI
                 micBtn.disabled = true;
-                shareIcon.className = 'fas fa-stop-circle text-3xl text-red-400';
+                shareIcon.className = 'fas fa-stop-circle text-2xl text-red-400';
                 shareScreenBtn.querySelector('span').textContent = 'Stop';
-
-                screenStream.getTracks().forEach(track => {
-                    track.onended = () => stopScreenShare();
-                });
-
-            } catch(e) {
-                console.error("Screen share error:", e);
-            }
+                screenStream.getTracks().forEach(track => { track.onended = () => stopScreenShare(); });
+            } catch(e) { console.error("Screen share error:", e); }
         }
 
         function stopScreenShare() {
             if (!isScreenSharing) return;
-
             screenStream.getTracks().forEach(track => track.stop());
             isScreenSharing = false;
-
-            // Switch back to mic audio
             replaceTrackInPeers(micStream.getAudioTracks()[0]);
-
-            // Reset UI
             micBtn.disabled = false;
-            shareIcon.className = 'fas fa-desktop text-3xl';
+            shareIcon.className = 'fas fa-desktop text-2xl';
             shareScreenBtn.querySelector('span').textContent = 'Share';
         }
 
@@ -283,70 +509,28 @@
             for (const partnerId in peerConnections) {
                 const pc = peerConnections[partnerId];
                 const sender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
-                if (sender) {
-                    sender.replaceTrack(newTrack);
-                }
+                if (sender) sender.replaceTrack(newTrack);
             }
         }
-
-        // --- Channel & WebRTC Logic ---
-        async function joinChannel() {
-            const channelRef = doc(db, 'radio_channels', DEFAULT_CHANNEL_ID);
-            const participantsRef = collection(channelRef, 'participants');
-            
-            await setDoc(doc(participantsRef, myId), { joinedAt: Date.now() });
-            updateStatus("Connected to Channel");
-            userCountEl.classList.remove('opacity-0');
-            
-            if(participantsUnsubscribe) participantsUnsubscribe();
-            participantsUnsubscribe = onSnapshot(participantsRef, (snapshot) => {
-                const currentParticipants = new Set();
-                snapshot.forEach(doc => { if (doc.id !== myId) currentParticipants.add(doc.id); });
-                connectedUsersEl.textContent = currentParticipants.size + 1;
-
-                for (const participantId of currentParticipants) {
-                    if (myId < participantId) createPeerConnection(participantId, true);
-                }
-                
-                const existingPeers = new Set(Object.keys(peerConnections));
-                for (const participantId of existingPeers) {
-                    if (!currentParticipants.has(participantId)) cleanupPeerConnection(participantId);
-                }
-            });
-            listenForOffers();
-        }
-
+        
         function createPeerConnection(partnerId, isCaller) {
             if (peerConnections[partnerId]) return;
             const pc = new RTCPeerConnection(servers);
             peerConnections[partnerId] = pc;
-            
             micStream.getTracks().forEach(track => pc.addTrack(track, micStream));
-
             pc.ontrack = event => {
                 let audioEl = document.getElementById(`audio_${partnerId}`);
                 if (!audioEl) {
                     audioEl = document.createElement('audio');
                     audioEl.id = `audio_${partnerId}`;
                     audioEl.autoplay = true;
-                    audioContainer.appendChild(audioEl);
+                    document.getElementById('audio-container').appendChild(audioEl);
                 }
                 audioEl.srcObject = event.streams[0];
             };
-
             pc.onicecandidate = e => e.candidate && sendSignal({ candidate: e.candidate.toJSON() }, partnerId);
-            pc.onconnectionstatechange = () => {
-                if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
-                    cleanupPeerConnection(partnerId);
-                }
-            };
-            
-            if (isCaller) {
-                pc.createOffer().then(offer => {
-                    pc.setLocalDescription(offer);
-                    sendSignal({ offer }, partnerId);
-                });
-            }
+            pc.onconnectionstatechange = () => { if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) cleanupPeerConnection(partnerId); };
+            if (isCaller) pc.createOffer().then(offer => { pc.setLocalDescription(offer); sendSignal({ offer }, partnerId); });
         }
 
         function cleanupPeerConnection(partnerId) {
@@ -364,15 +548,14 @@
         }
         
         function listenForOffers() {
+            if (signalsUnsubscribe) signalsUnsubscribe();
             const signalsRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'signals');
             const q = query(signalsRef, where("to", "==", myId));
-            
-            onSnapshot(q, (snapshot) => {
+            signalsUnsubscribe = onSnapshot(q, (snapshot) => {
                 snapshot.docChanges().forEach(async (change) => {
                     if (change.type === 'added') {
                         const signal = change.doc.data();
                         const partnerId = signal.from;
-
                         if (signal.offer) {
                             if (myId > partnerId) {
                                 createPeerConnection(partnerId, false); 
@@ -387,48 +570,21 @@
                         } 
                         else if (signal.answer) {
                             const pc = peerConnections[partnerId];
-                            if(pc && pc.signalingState !== 'stable') {
-                                await pc.setRemoteDescription(new RTCSessionDescription(signal.answer));
-                            }
+                            if(pc && pc.signalingState !== 'stable') await pc.setRemoteDescription(new RTCSessionDescription(signal.answer));
                         } 
                         else if (signal.candidate) {
                             const pc = peerConnections[partnerId];
-                            if (pc && pc.remoteDescription) {
-                                await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
-                            }
+                            if (pc && pc.remoteDescription) await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
                         }
-                        
                         await deleteDoc(change.doc.ref);
                     }
                 });
             });
         }
         
-        async function leaveChannel() {
-            if (myId) {
-                const selfRef = doc(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'participants', myId);
-                await deleteDoc(selfRef).catch(e => console.error("Error leaving channel:", e));
-            }
-            Object.keys(peerConnections).forEach(cleanupPeerConnection);
-            if(micStream) micStream.getTracks().forEach(track => track.stop());
-            if(screenStream) screenStream.getTracks().forEach(track => track.stop());
-            if(participantsUnsubscribe) participantsUnsubscribe();
-            
-            // Clear state
-            peerConnections = {};
-            micStream = null;
-            screenStream = null;
-        }
-
         function updateStatus(message) { statusEl.textContent = message; }
         
-        window.addEventListener('beforeunload', () => {
-             // We call leaveChannel directly for robustness, but signOut will also trigger it
-             if(auth.currentUser) {
-                leaveChannel();
-                signOut(auth);
-             }
-        });
+        window.addEventListener('beforeunload', () => { if(auth.currentUser) signOut(auth); });
 
         initialize();
 
