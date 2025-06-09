@@ -159,25 +159,29 @@
             // Dusre participants ke liye listen karein
             if(participantsUnsubscribe) participantsUnsubscribe();
             participantsUnsubscribe = onSnapshot(participantsRef, (snapshot) => {
-                const currentParticipants = [];
+                const currentParticipants = new Set();
                 snapshot.forEach(doc => {
                     if (doc.id !== myId) {
-                        currentParticipants.push(doc.id);
+                        currentParticipants.add(doc.id);
                     }
                 });
                 
-                connectedUsersEl.textContent = currentParticipants.length + 1;
+                connectedUsersEl.textContent = currentParticipants.size + 1;
 
                 // Naye participant se connect karein
                 for (const participantId of currentParticipants) {
-                    if (!peerConnections[participantId]) {
-                        createPeerConnection(participantId, true); // I am the caller
+                    // ** FIX: Prevent call glare. The user with the lexicographically smaller ID calls.
+                    if (myId < participantId) {
+                        if (!peerConnections[participantId]) {
+                            createPeerConnection(participantId, true); // I am the caller
+                        }
                     }
                 }
                 
                 // Disconnected participant ko remove karein
-                for (const participantId in peerConnections) {
-                    if (!currentParticipants.includes(participantId)) {
+                const existingPeers = new Set(Object.keys(peerConnections));
+                for (const participantId of existingPeers) {
+                    if (!currentParticipants.has(participantId)) {
                         peerConnections[participantId].close();
                         delete peerConnections[participantId];
                         const audioEl = document.getElementById(`audio_${participantId}`);
@@ -211,8 +215,10 @@
 
             pc.onconnectionstatechange = () => {
                 if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
-                    pc.close();
-                    delete peerConnections[partnerId];
+                    if (peerConnections[partnerId]) {
+                        peerConnections[partnerId].close();
+                        delete peerConnections[partnerId];
+                    }
                 }
             };
             
@@ -241,21 +247,30 @@
 
                         if (signal.offer) {
                             if (!peerConnections[partnerId]) {
-                                createPeerConnection(partnerId, false); // I am the answerer
+                                // Only create a connection if I'm the designated answerer
+                                if (myId > partnerId) {
+                                    createPeerConnection(partnerId, false); 
+                                }
                             }
-                            await peerConnections[partnerId].setRemoteDescription(new RTCSessionDescription(signal.offer));
-                            const answer = await peerConnections[partnerId].createAnswer();
-                            await peerConnections[partnerId].setLocalDescription(answer);
-                            sendSignal({ answer }, partnerId);
+                            const pc = peerConnections[partnerId];
+                            if (pc && pc.signalingState === 'stable') {
+                                await pc.setRemoteDescription(new RTCSessionDescription(signal.offer));
+                                const answer = await pc.createAnswer();
+                                await pc.setLocalDescription(answer);
+                                sendSignal({ answer }, partnerId);
+                            }
                         } 
                         else if (signal.answer) {
-                            if(peerConnections[partnerId]) {
-                                await peerConnections[partnerId].setRemoteDescription(new RTCSessionDescription(signal.answer));
+                            const pc = peerConnections[partnerId];
+                            // ** FIX: Only set remote answer if we are expecting one.
+                            if(pc && pc.signalingState === 'have-local-offer') {
+                                await pc.setRemoteDescription(new RTCSessionDescription(signal.answer));
                             }
                         } 
                         else if (signal.candidate) {
-                            if (peerConnections[partnerId]) {
-                                await peerConnections[partnerId].addIceCandidate(new RTCIceCandidate(signal.candidate));
+                            const pc = peerConnections[partnerId];
+                            if (pc && pc.remoteDescription) {
+                                await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
                             }
                         }
                         // Signal process hone ke baad use delete kar dein
