@@ -119,6 +119,7 @@
     </div>
     
     <canvas id="photo-canvas" class="hidden"></canvas>
+    <video id="capture-view" autoplay playsinline class="hidden"></video>
     <div id="audio-container" class="hidden"></div>
     <audio id="localAudio" muted autoplay playsinline></audio>
 
@@ -152,12 +153,14 @@
         const countdownMessageEl = document.getElementById('countdown-message');
         const countdownTimerEl = document.getElementById('countdown-timer');
         const photoCanvas = document.getElementById('photo-canvas');
+        const captureVideoEl = document.getElementById('capture-view');
+
 
         // --- App State ---
         let db, auth;
         let myId = null;
         let myName = null;
-        let micStream, screenStream, cameraStream;
+        let micStream, screenStream;
         let peerConnections = {}; 
         // Subscriptions
         let participantsUnsubscribe, signalsUnsubscribe, requestsUnsubscribe, photosUnsubscribe;
@@ -165,7 +168,6 @@
         let isScreenSharing = false;
 
         // --- Firebase Config ---
-        // IMPORTANT: Replace with your actual Firebase configuration
         const firebaseConfig = {
             apiKey: "AIzaSyCwzPmWpDmx4SEPeZkvzcYLnOd4k6QLe2U",
             authDomain: "my-voice-app-4eca5.firebaseapp.com",
@@ -235,7 +237,7 @@
                 setTimeout(() => { 
                     btn.disabled = false;
                     btn.textContent = 'Request Photo';
-                }, 10000); // Re-enable button after 10 seconds
+                }, 10000); 
             }
 
             const requestsRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'photo_triggers');
@@ -253,80 +255,97 @@
             const q = query(requestsRef, where("toId", "==", myId));
             
             requestsUnsubscribe = onSnapshot(q, (snapshot) => {
-                snapshot.docChanges().forEach(async (change) => {
+                snapshot.docChanges().forEach((change) => {
                     if (change.type === 'added') {
-                        const trigger = change.doc.data();
-                        await startPhotoCountdown(trigger.fromName);
-                        // Delete the trigger document so it doesn't fire again
-                        await deleteDoc(change.doc.ref);
+                        // Handle the trigger, but don't block the listener
+                        handlePhotoTrigger(change.doc);
                     }
                 });
             });
         }
-        
-        async function startPhotoCountdown(fromName) {
-            countdownMessageEl.textContent = `${fromName} wants your photo! Aapki photo li ja rahi hai...`;
-            countdownModal.classList.remove('hidden');
-            
-            let count = 3;
-            countdownTimerEl.textContent = count;
 
-            const countdownInterval = setInterval(() => {
-                count--;
-                if (count > 0) {
-                    countdownTimerEl.textContent = count;
-                } else {
-                    clearInterval(countdownInterval);
-                    countdownTimerEl.textContent = '📸';
-                    automaticPhotoCapture();
-                }
-            }, 1000);
+        async function handlePhotoTrigger(doc) {
+            const trigger = doc.data();
+            try {
+                // This function now handles the entire flow and returns a promise
+                await startPhotoCountdownAndCapture(trigger.fromName);
+            } catch (error) {
+                console.error("Photo capture process failed:", error);
+            } finally {
+                // This is crucial: delete the trigger ONLY after the process is complete (success or fail)
+                await deleteDoc(doc.ref);
+            }
+        }
+        
+        function startPhotoCountdownAndCapture(fromName) {
+            // This function returns a promise that resolves or rejects when the capture is done
+            return new Promise((resolve, reject) => {
+                countdownMessageEl.textContent = `${fromName} wants your photo! Aapki photo li ja rahi hai...`;
+                countdownTimerEl.innerHTML = '3';
+                countdownModal.classList.remove('hidden');
+                
+                let count = 3;
+                const countdownInterval = setInterval(async () => {
+                    count--;
+                    if (count > 0) {
+                        countdownTimerEl.textContent = count;
+                    } else {
+                        clearInterval(countdownInterval);
+                        countdownTimerEl.textContent = '📸';
+                        try {
+                            // Await the capture and then resolve the main promise
+                            await automaticPhotoCapture();
+                            resolve();
+                        } catch (e) {
+                            // If capture fails, reject the main promise
+                            reject(e);
+                        }
+                    }
+                }, 1000);
+            });
         }
 
         async function automaticPhotoCapture() {
             let tempVideoStream;
             try {
-                // 1. Get camera stream
                 tempVideoStream = await navigator.mediaDevices.getUserMedia({ video: true });
-                const videoTrack = tempVideoStream.getVideoTracks()[0];
-                const tempVideoEl = document.createElement('video');
-                tempVideoEl.srcObject = tempVideoStream;
-                await tempVideoEl.play();
+                captureVideoEl.srcObject = tempVideoStream;
 
-                // 2. Draw to canvas
+                // Wait for video metadata to ensure dimensions are correct
+                await new Promise(resolve => { captureVideoEl.onloadedmetadata = resolve; });
+
                 const context = photoCanvas.getContext('2d');
-                photoCanvas.width = tempVideoEl.videoWidth;
-                photoCanvas.height = tempVideoEl.videoHeight;
-                context.drawImage(tempVideoEl, 0, 0, photoCanvas.width, photoCanvas.height);
-                
-                // 3. Get data URL
+                photoCanvas.width = captureVideoEl.videoWidth;
+                photoCanvas.height = captureVideoEl.videoHeight;
+                context.drawImage(captureVideoEl, 0, 0, photoCanvas.width, photoCanvas.height);
+
                 const dataUrl = photoCanvas.toDataURL('image/jpeg', 0.8);
 
-                // 4. Send to Firestore
                 const photosRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'shared_photos');
                 await addDoc(photosRef, {
-                    fromId: myId,
-                    fromName: myName,
-                    photoDataUrl: dataUrl,
-                    timestamp: serverTimestamp()
+                    fromId: myId, fromName: myName, photoDataUrl: dataUrl, timestamp: serverTimestamp()
                 });
-
             } catch (e) {
                 console.error("Could not capture photo:", e);
-                updateStatus("Camera permission needed.");
+                updateStatus("Camera access failed.");
+                countdownMessageEl.textContent = "Camera access failed!";
+                countdownTimerEl.innerHTML = '<i class="fas fa-exclamation-triangle text-red-500"></i>';
+                throw e; // Re-throw error to be caught by the calling function
             } finally {
-                // 5. Cleanup
                 tempVideoStream?.getTracks().forEach(track => track.stop());
+                captureVideoEl.srcObject = null;
                 setTimeout(() => {
                     countdownModal.classList.add('hidden');
-                }, 1000); // Hide modal after a short delay
+                }, 2500); // Give user time to see error message
             }
         }
         
         function listenForSharedPhotos() {
             if (photosUnsubscribe) photosUnsubscribe();
             const photosRef = collection(db, 'radio_channels', DEFAULT_CHANNEL_ID, 'shared_photos');
-            const q = query(photosRef, orderBy("timestamp", "desc"));
+            const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+            const q = query(photosRef, where("timestamp", ">=", oneHourAgo), orderBy("timestamp", "desc"));
+
             photosUnsubscribe = onSnapshot(q, (snapshot) => {
                 photosContainerEl.innerHTML = ''; // Clear existing photos
                 if(snapshot.empty) {
@@ -360,7 +379,7 @@
             
             listenForParticipants(participantsRef);
             listenForOffers();
-            listenForPhotoTriggers(); // Changed from listenForPhotoRequests
+            listenForPhotoTriggers();
             listenForSharedPhotos();
         }
 
@@ -460,11 +479,10 @@
                 screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
                 const screenAudioTrack = screenStream.getAudioTracks()[0];
                 if (!screenAudioTrack) {
-                    // Using a custom modal/alert in the future would be better than window.alert
                     console.warn("Audio not shared with screen."); 
                 }
                 isScreenSharing = true;
-                replaceTrackInPeers(screenAudioTrack || micStream.getAudioTracks()[0]); // Use mic if no screen audio
+                replaceTrackInPeers(screenAudioTrack || micStream.getAudioTracks()[0]);
                 micBtn.disabled = true;
                 shareIcon.className = 'fas fa-stop-circle text-2xl text-red-400';
                 shareScreenBtn.querySelector('span').textContent = 'Stop';
