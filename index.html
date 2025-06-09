@@ -6,6 +6,7 @@
     <title>Public Radio Channel</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         body { font-family: 'Inter', sans-serif; }
         .status-light {
@@ -43,6 +44,12 @@
             <span id="connectedUsers">0</span> users connected
         </div>
 
+        <!-- Mic Mute/Unmute Button -->
+        <button id="micBtn" class="mt-6 w-full flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300" disabled>
+            <i id="micIcon" class="fas fa-microphone-slash mr-2"></i>
+            <span id="micText">Unmute</span>
+        </button>
+
         <!-- Audio elements dynamically added here -->
         <div id="audio-container" class="hidden"></div>
         <audio id="localAudio" muted autoplay playsinline></audio>
@@ -64,6 +71,9 @@
         const statusLight = document.getElementById('statusLight');
         const audioContainer = document.getElementById('audio-container');
         const connectedUsersEl = document.getElementById('connectedUsers');
+        const micBtn = document.getElementById('micBtn');
+        const micIcon = document.getElementById('micIcon');
+        const micText = document.getElementById('micText');
         
         // --- App State ---
         let db, auth;
@@ -71,6 +81,7 @@
         let myId = null;
         let peerConnections = {}; // Sabhi connections ko store karega
         let participantsUnsubscribe = null;
+        let isMuted = true;
 
         // Firebase configuration
         const firebaseConfig = {
@@ -95,6 +106,7 @@
                 // Pehle microphone access lein
                 localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 localAudio.srcObject = localStream;
+                toggleMic(false); // Start with mic unmuted
                 
                 onAuthStateChanged(auth, user => {
                     if (user && !myId) { 
@@ -108,6 +120,31 @@
             } catch (e) {
                 console.error("Initialization/Mic Error:", e);
                 updateStatus("Mic/Connection Error", 'disconnected');
+            }
+            micBtn.addEventListener('click', () => toggleMic());
+        }
+
+        function toggleMic(shouldToggle = true) {
+            if (!localStream) return;
+            
+            if(shouldToggle) isMuted = !isMuted;
+            else isMuted = false;
+
+            localStream.getAudioTracks().forEach(track => {
+                track.enabled = !isMuted;
+            });
+            
+            micBtn.disabled = false;
+            if (isMuted) {
+                micIcon.className = 'fas fa-microphone-slash mr-2';
+                micText.textContent = 'Unmute';
+                micBtn.classList.replace('bg-blue-600', 'bg-red-600');
+                micBtn.classList.replace('hover:bg-blue-700', 'hover:bg-red-700');
+            } else {
+                micIcon.className = 'fas fa-microphone mr-2';
+                micText.textContent = 'Mute';
+                micBtn.classList.replace('bg-red-600', 'bg-blue-600');
+                micBtn.classList.replace('hover:bg-red-700', 'hover:bg-blue-700');
             }
         }
 
