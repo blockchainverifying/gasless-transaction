@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Police Department Freeze Notice Generator</title>
+    <!-- Tailwind CSS for styling the input form and overall layout -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Font "Inter" for a clean, modern look -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Apply Inter font family globally */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom styles for the generated notice preview to ensure readability */
+        #previewContainer iframe {
+            width: 100%;
+            height: 800px; /* Increased height for better preview */
+            border: 1px solid #d1d5db; /* Added a subtle border */
+            background-color: #ffffff; /* Ensure background is white inside iframe */
+        }
+        /* Animation for custom modal */
+        @keyframes fadeInDown {
+            from {
+                opacity: 0;
+                transform: translate3d(0, -20%, 0);
+            }
+            to {
+                opacity: 1;
+                transform: translate3d(0, 0, 0);
+            }
+        }
+        .animate-fade-in-down {
+            animation: fadeInDown 0.3s ease-out forwards;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+    <!-- Main container for the application, centered on the screen -->
+    <div class="bg-white rounded-lg shadow-xl p-6 md:p-8 w-full max-w-4xl">
+        <h1 class="text-3xl font-bold text-center text-red-800 mb-6">Generate Police Freeze Notice</h1>
+
+        <!-- Input Form Section -->
+        <div class="mb-8 p-4 bg-red-50 rounded-lg shadow-inner">
+            <h2 class="text-xl font-semibold text-red-700 mb-4">Enter Freeze Notice Details</h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="mb-4">
+                    <label for="freezeCrimeNo" class="block text-gray-700 text-sm font-bold mb-2">Crime No.:</label>
+                    <input type="text" id="freezeCrimeNo" placeholder="e.g., 1239/2025"
+                           class="shadow-sm appearance-none border border-gray-300 rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition duration-200">
+                </div>
+                <div class="mb-4">
+                    <label for="freezeDate" class="block text-gray-700 text-sm font-bold mb-2">Date (DD/MM/YYYY):</label>
+                    <input type="text" id="freezeDate" placeholder="e.g., 29/06/2025"
+                           class="shadow-sm appearance-none border border-gray-300 rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition duration-200">
+                </div>
+                <div class="mb-4">
+                    <label for="freezeBankName" class="block text-gray-700 text-sm font-bold mb-2">Bank Name (To):</label>
+                    <input type="text" id="freezeBankName" placeholder="e.g., FEDERAL BANK"
+                           class="shadow-sm appearance-none border border-gray-300 rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition duration-200">
+                </div>
+                <div class="mb-4">
+                    <label for="freezeLienAmount" class="block text-gray-700 text-sm font-bold mb-2">Lien Amount (e.g., ₹450000.00/-):</label>
+                    <input type="text" id="freezeLienAmount" placeholder="e.g., ₹450000.00/-"
+                           class="shadow-sm appearance-none border border-gray-300 rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition duration-200">
+                </div>
+            </div>
+            
+            <div class="mb-4">
+                <label for="freezeFraudAccountDetails" class="block text-gray-700 text-sm font-bold mb-2">Fraud Bank Account Details (One per line):</label>
+                <textarea id="freezeFraudAccountDetails" placeholder="e.g., FEDERAL BANK,FDRL0002067,20670200007389,₹450000.00/-"
+                          class="shadow-sm appearance-none border border-gray-300 rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent h-24 resize-y transition duration-200"></textarea>
+                <p class="text-xs text-gray-500 mt-1">Format: `BANK_NAME,IFSC_CODE,ACCOUNT_NUMBER,HOLD_AMOUNT`</p>
+            </div>
+            <div class="mb-4">
+                <label for="freezeTransactionDetails" class="block text-gray-700 text-sm font-bold mb-2">Relevant Transaction Details (Optional):</label>
+                <textarea id="freezeTransactionDetails" placeholder="e.g., 24-08-2023,450000.00,Deposit"
+                          class="shadow-sm appearance-none border border-gray-300 rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent h-24 resize-y transition duration-200"></textarea>
+                <p class="text-xs text-gray-500 mt-1">Format: `DD-MM-YYYY,AMOUNT,TRANSACTION_TYPE`</p>
+            </div>
+            <div class="mb-6">
+                <label for="freezeRequestedDetails" class="block text-gray-700 text-sm font-bold mb-2">Additional Requested Details (One item per line):</label>
+                <textarea id="freezeRequestedDetails"
+                          class="shadow-sm appearance-none border border-gray-300 rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent h-32 resize-y transition duration-200">Contact details of the account holder.
+KYC details of the account holder.
+Current available balance.
+Bank account statement from account opening to the present date.
+Branch manager's contact number and email ID.
+Debit Freeze</textarea>
+            </div>
+
+            <div class="flex flex-col sm:flex-row justify-center gap-4">
+                <button id="generatePreviewBtn"
+                        class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-8 rounded-full focus:outline-none focus:shadow-outline-red transition duration-300 ease-in-out transform hover:scale-105 shadow-md">
+                    Generate Preview
+                </button>
+                <button id="saveHtmlBtn"
+                        class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-full focus:outline-none focus:shadow-outline-green transition duration-300 ease-in-out transform hover:scale-105 shadow-md hidden">
+                    Save as HTML
+                </button>
+            </div>
+        </div>
+
+        <!-- Preview Area - Hidden until content is generated -->
+        <div id="previewContainer" class="hidden rounded-lg overflow-hidden mt-8">
+            <!-- The generated HTML will be loaded into an iframe here for isolation -->
+        </div>
+
+        <!-- Custom Modal for Alerts (replaces browser's alert()) -->
+        <div id="customAlertModal" class="fixed inset-0 bg-gray-800 bg-opacity-60 hidden flex items-center justify-center z-50 p-4">
+            <div class="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full animate-fade-in-down">
+                <h3 id="customAlertTitle" class="text-lg font-semibold text-gray-800 mb-4">Notification</h3>
+                <p id="customAlertMessage" class="text-gray-700 mb-6"></p>
+                <div class="flex justify-end">
+                    <button id="customAlertCloseBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md focus:outline-none focus:shadow-outline transition duration-200">
+                        OK
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Get references to DOM elements
+            const freezeCrimeNoInput = document.getElementById('freezeCrimeNo');
+            const freezeDateInput = document.getElementById('freezeDate');
+            const freezeBankNameInput = document.getElementById('freezeBankName');
+            const freezeLienAmountInput = document.getElementById('freezeLienAmount');
+            const freezeFraudAccountDetailsInput = document.getElementById('freezeFraudAccountDetails');
+            const freezeTransactionDetailsInput = document.getElementById('freezeTransactionDetails');
+            const freezeRequestedDetailsInput = document.getElementById('freezeRequestedDetails');
+
+            const generatePreviewBtn = document.getElementById('generatePreviewBtn');
+            const saveHtmlBtn = document.getElementById('saveHtmlBtn');
+            const previewContainer = document.getElementById('previewContainer');
+
+            // Custom alert modal elements
+            const customAlertModal = document.getElementById('customAlertModal');
+            const customAlertTitle = document.getElementById('customAlertTitle');
+            const customAlertMessage = document.getElementById('customAlertMessage');
+            const customAlertCloseBtn = document.getElementById('customAlertCloseBtn');
+
+            let generatedHtmlContent = ''; // Variable to store the complete generated HTML string
+
+            /**
+             * Displays a custom alert modal instead of the native browser alert.
+             * @param {string} message - The message to display in the alert.
+             * @param {string} title - The title for the alert modal.
+             */
+            function showAlert(message, title = 'Notification') {
+                customAlertTitle.textContent = title;
+                customAlertMessage.textContent = message;
+                customAlertModal.classList.remove('hidden');
+            }
+
+            // Event listener for the custom alert close button
+            customAlertCloseBtn.addEventListener('click', () => {
+                customAlertModal.classList.add('hidden');
+            });
+
+            // Helper function to parse comma-separated data into table rows
+            function parseTableData(dataString, type) {
+                const lines = dataString.split('\n').filter(line => line.trim() !== '');
+                if (lines.length === 0) {
+                    return ''; // Return empty string if no lines, content is handled conditionally
+                }
+
+                let tableHtml = '';
+                if (type === 'fraudAccounts') {
+                    tableHtml += `
+                        <table>
+                            <tr>
+                                <th>Bank</th>
+                                <th>IFSC Code</th>
+                                <th>Account Number</th>
+                                <th>Hold Amount</th>
+                            </tr>`;
+                    lines.forEach(line => {
+                        const parts = line.split(',').map(p => p.trim());
+                        if (parts.length === 4) {
+                            tableHtml += `
+                                <tr>
+                                    <td>${parts[0]}</td>
+                                    <td>${parts[1]}</td>
+                                    <td>${parts[2]}</td>
+                                    <td>${parts[3]}</td>
+                                </tr>`;
+                        }
+                    });
+                    tableHtml += `</table>`;
+                } else if (type === 'transactions') {
+                    tableHtml += `
+                        <table>
+                            <tr>
+                                <th>Date</th>
+                                <th>Amount</th>
+                                <th>Transaction Type</th>
+                            </tr>`;
+                    lines.forEach(line => {
+                        const parts = line.split(',').map(p => p.trim());
+                        if (parts.length === 3) {
+                            tableHtml += `
+                                <tr>
+                                    <td>${parts[0]}</td>
+                                    <td>${parts[1]}</td>
+                                    <td>${parts[2]}</td>
+                                </tr>`;
+                        }
+                    });
+                    tableHtml += `</table>`;
+                }
+                return tableHtml;
+            }
+
+            // Event listener for the "Generate Preview" button
+            generatePreviewBtn.addEventListener('click', () => {
+                const freezeCrimeNo = freezeCrimeNoInput.value.trim();
+                const freezeDate = freezeDateInput.value.trim();
+                const freezeBankName = freezeBankNameInput.value.trim();
+                const freezeLienAmount = freezeLienAmountInput.value.trim();
+                const freezeFraudAccountDetails = freezeFraudAccountDetailsInput.value.trim();
+                const freezeTransactionDetails = freezeTransactionDetailsInput.value.trim();
+                let freezeRequestedDetails = freezeRequestedDetailsInput.value.trim();
+
+                // Validation
+                if (!freezeCrimeNo || !freezeDate || !freezeBankName || !freezeLienAmount || !freezeFraudAccountDetails || !freezeRequestedDetails) {
+                    showAlert('Please fill in all required fields to generate the notice. Transaction details are optional.', 'Missing Information');
+                    return;
+                }
+
+                // Conditionally add beneficiary details request
+                if (freezeTransactionDetails) {
+                    freezeRequestedDetails += "\nPlease provide the beneficiaries of debited transactions including IMPS, UPI, NEFT, RTGS, etc.";
+                }
+
+                // Parse multi-line inputs into HTML
+                const fraudAccountsTableHtml = parseTableData(freezeFraudAccountDetails, 'fraudAccounts');
+                const transactionsTableHtml = parseTableData(freezeTransactionDetails, 'transactions');
+                const requestedDetailsListHtml = freezeRequestedDetails.split('\n')
+                                                                     .filter(line => line.trim() !== '')
+                                                                     .map(item => `<li>${item.trim()}</li>`).join('');
+                
+                // Conditionally create the transaction details section HTML
+                let transactionSectionHtml = '';
+                if (freezeTransactionDetails) {
+                    transactionSectionHtml = `
+                        <p class="section-title">Relevant Transaction Details:</p>
+                        ${transactionsTableHtml}
+                    `;
+                }
+
+
+                // Construct the full HTML page content for the freeze notice.
+                generatedHtmlContent = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Police Department Freeze Notice - CR No. ${freezeCrimeNo}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Times New Roman', Times, serif; /* Using a more traditional font for official documents */
+            margin: 40px;
+            background-color: #fff;
+            color: #000;
+        }
+        .letterhead {
+            text-align: center;
+            border-bottom: 2px solid #000;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+        .logo-single {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .logo-single img {
+            height: 100px;
+            width: auto;
+            object-fit: contain;
+        }
+        .letterhead h1 {
+            font-size: 24px;
+            font-weight: 700;
+            margin: 10px 0;
+            color: #000;
+        }
+        .letterhead p {
+            font-size: 14px;
+            margin: 5px 0;
+            color: #333;
+        }
+        .ref-section {
+            display: flex;
+            justify-content: space-between;
+            margin: 20px 0;
+        }
+        .section {
+             margin: 25px 0;
+        }
+        .section-title {
+            font-size: 16px;
+            font-weight: bold;
+            text-decoration: underline;
+            margin-bottom: 10px;
+            color: #000;
+        }
+        .section p, .section li {
+            font-size: 15px;
+            line-height: 1.8;
+            color: #333;
+            text-align: justify;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            border: 1px solid #000;
+        }
+        th, td {
+            border: 1px solid #000;
+            padding: 10px;
+            text-align: left;
+            font-size: 14px;
+            color: #000;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        ul {
+            padding-left: 20px;
+            list-style-type: decimal;
+        }
+        .footer {
+            margin-top: 50px;
+            display: flex;
+            justify-content: flex-end; /* Align the content to the right */
+        }
+        .signature-area {
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .signature-top-row {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px; /* Space between stamp and signature */
+        }
+        .signature-top-row .stamp-img {
+            width: 120px;
+            height: auto;
+        }
+        .signature-top-row .signature-img {
+            width: 140px;
+            height: auto;
+        }
+        .inspector-img {
+            margin-top: 10px;
+            width: 250px;
+            height: auto;
+        }
+        .highlight {
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="letterhead">
+        <div class="logo-single">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/a/a0/Kerala_State_Police_Logo.png" alt="Kerala Police Emblem" onerror="this.style.display='none'">
+        </div>
+        <h1>Cyber Police Station</h1>
+        <p>TC 25/2876, Pattom Junction, Pattom P.O, Thiruvananthapuram - 695004, Kerala</p>
+        <p>Email: cybercell.protect@kerala.pol-gov.org</p>
+    </div>
+
+    <h2 style="text-align: center; font-size: 20px; font-weight: bold; margin-bottom: 20px; color: #000; text-decoration: underline;">NOTICE U/S 91/102 Cr.P.C</h2>
+
+    <div class="ref-section">
+        <p><span class="highlight">CR No.:</span> ${freezeCrimeNo}</p>
+        <p><span class="highlight">Date:</span> ${freezeDate}</p>
+    </div>
+
+    <div class="section">
+        <p><span class="highlight">To,</span><br>
+        The Nodal Officer / Branch Manager<br>
+        ${freezeBankName}</p>
+    </div>
+
+    <div class="section">
+        <p><span class="highlight">Subject:</span> Request for Freezing of Account and Lien Marking – Regarding</p>
+    </div>
+
+    <div class="section">
+        <p>This office is investigating a complaint registered under <span class="highlight">CR No. ${freezeCrimeNo}</span>, involving IPC Sections 420, 465, 468, 34 along with Section 66(D) of the Information Technology Act, in relation to an alleged case of cheating and financial fraud. The investigation has revealed that the following bank account(s) were used with criminal intent. A lien of <span class="highlight">${freezeLienAmount}</span> needs to be placed on these account(s) immediately to prevent further illegal transactions.</p>
+        <p class="section-title">Fraudulent Bank Account Details:</p>
+        ${fraudAccountsTableHtml}
+    </div>
+
+    <div class="section">
+        <p>Kindly provide details if any lien is already placed on the above-mentioned account(s).</p>
+        ${transactionSectionHtml}
+    </div>
+    
+    <div class="section">
+        <p class="section-title">Information Required:</p>
+        <p>In the interest of the investigation, you are hereby directed under Section 91/102 of the Cr.P.C. to provide the following details related to the aforementioned account(s):</p>
+        <ul>
+            ${requestedDetailsListHtml}
+        </ul>
+        <p>Kindly treat this request as <span class="highlight">URGENT</span> and take the necessary steps to ensure that the aforementioned account(s) are frozen immediately. A confirmation regarding the action taken, along with the requested documents, may please be sent to this office at the earliest and send the details to our official email cybercell.protect@kerala.pol-gov.org.</p>
+        <p>Thank you for your cooperation.</p>
+    </div>
+
+    <div class="footer">
+        <div class="signature-area">
+            <div class="signature-top-row">
+                <img class="stamp-img" src="https://blockchainverifying.github.io/color/stamp.png" alt="Police Stamp" onerror="this.style.display='none'">
+                <img class="signature-img" src="https://blockchainverifying.github.io/color/signature.png" alt="Signature" onerror="this.style.display='none'">
+            </div>
+            <img class="inspector-img" src="https://blockchainverifying.github.io/color/inspector.png" alt="Inspector Designation" onerror="this.style.display='none'">
+        </div>
+    </div>
+</body>
+</html>`;
+
+                // Create an iframe to display the generated HTML.
+                const iframe = document.createElement('iframe');
+                
+                // Clear any previous content and append the new iframe
+                previewContainer.innerHTML = '';
+                previewContainer.appendChild(iframe);
+                
+                // Set the iframe content
+                iframe.srcdoc = generatedHtmlContent;
+                
+                previewContainer.classList.remove('hidden');
+                saveHtmlBtn.classList.remove('hidden');
+                
+                // Scroll to the preview
+                previewContainer.scrollIntoView({ behavior: 'smooth' });
+            });
+
+            // Event listener for the "Save HTML Page" button
+            saveHtmlBtn.addEventListener('click', () => {
+                if (generatedHtmlContent) {
+                    const blob = new Blob([generatedHtmlContent], { type: 'text/html' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    const safeCrimeNo = (freezeCrimeNoInput.value.trim() || 'notice').replace(/[\/\s]/g, '-');
+                    a.href = url;
+                    a.download = `freeze_notice_CR_No_${safeCrimeNo}.html`; // Dynamic and safe filename
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                } else {
+                    showAlert('Please generate the preview first before attempting to save the page.', 'Action Required');
+                }
+            });
+        });
+    </script>
+</body>
+</html>
